@@ -188,12 +188,20 @@
     // ----------------------------------------------------------------------
     /* eslint-disable */
     var pre_parse_re = /("(?:\\[\S\s]|[^"])*"|\/(?! )[^\/\\]*(?:\\[\S\s][^\/\\]*)*\/[gimy]*(?=\s|\(|\)|$)|;.*)/g;
+    var pre_parse_start_re = new RegExp('^\s*' + pre_parse_re);
     var string_re = /"(?:\\[\S\s]|[^"])*"/g;
     //var tokens_re = /("(?:\\[\S\s]|[^"])*"|\/(?! )[^\/\\]*(?:\\[\S\s][^\/\\]*)*\/[gimy]*(?=\s|\(|\)|$)|\(|\)|'|"(?:\\[\S\s]|[^"])+|\n|(?:\\[\S\s]|[^"])*"|;.*|(?:[-+]?(?:(?:\.[0-9]+|[0-9]+\.[0-9]+)(?:[eE][-+]?[0-9]+)?)|[0-9]+\.)[0-9]|\.{2,}|\.|,@|,|#|`|[^(\s)]+)/gim;
+        // regex that match single character at begining and folowing combine character
+    // https://en.wikipedia.org/wiki/Combining_character
+    var combine_chr_re = /^(.(?:[\u0300-\u036F]|[\u1AB0-\u1abE]|[\u1DC0-\u1DF9]|[\u1DFB-\u1DFF]|[\u20D0-\u20F0]|[\uFE20-\uFE2F])+)/;
+    // source: https://mathiasbynens.be/notes/javascript-unicode
+    var astral_symbols_re = /[\uD800-\uDBFF][\uDC00-\uDFFF]/g;
+    // source: https://github.com/mathiasbynens/emoji-regex
+    var emoji_re = /^(\uD83C\uDFF4(?:\uDB40\uDC67\uDB40\uDC62(?:\uDB40\uDC65\uDB40\uDC6E\uDB40\uDC67|\uDB40\uDC77\uDB40\uDC6C\uDB40\uDC73|\uDB40\uDC73\uDB40\uDC63\uDB40\uDC74)\uDB40\uDC7F|\u200D\u2620\uFE0F)|\uD83D\uDC69\u200D\uD83D\uDC69\u200D(?:\uD83D\uDC66\u200D\uD83D\uDC66|\uD83D\uDC67\u200D(?:\uD83D[\uDC66\uDC67]))|\uD83D\uDC68(?:\u200D(?:\u2764\uFE0F\u200D(?:\uD83D\uDC8B\u200D)?\uD83D\uDC68|(?:\uD83D[\uDC68\uDC69])\u200D(?:\uD83D\uDC66\u200D\uD83D\uDC66|\uD83D\uDC67\u200D(?:\uD83D[\uDC66\uDC67]))|\uD83D\uDC66\u200D\uD83D\uDC66|\uD83D\uDC67\u200D(?:\uD83D[\uDC66\uDC67])|\uD83C[\uDF3E\uDF73\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uD83E[\uDDB0-\uDDB3])|(?:\uD83C[\uDFFB-\uDFFF])\u200D(?:\uD83C[\uDF3E\uDF73\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uD83E[\uDDB0-\uDDB3]))|\uD83D\uDC69\u200D(?:\u2764\uFE0F\u200D(?:\uD83D\uDC8B\u200D(?:\uD83D[\uDC68\uDC69])|\uD83D[\uDC68\uDC69])|\uD83C[\uDF3E\uDF73\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uD83E[\uDDB0-\uDDB3])|\uD83D\uDC69\u200D\uD83D\uDC66\u200D\uD83D\uDC66|(?:\uD83D\uDC41\uFE0F\u200D\uD83D\uDDE8|\uD83D\uDC69(?:\uD83C[\uDFFB-\uDFFF])\u200D[\u2695\u2696\u2708]|\uD83D\uDC68(?:(?:\uD83C[\uDFFB-\uDFFF])\u200D[\u2695\u2696\u2708]|\u200D[\u2695\u2696\u2708])|(?:(?:\u26F9|\uD83C[\uDFCB\uDFCC]|\uD83D\uDD75)\uFE0F|\uD83D\uDC6F|\uD83E[\uDD3C\uDDDE\uDDDF])\u200D[\u2640\u2642]|(?:\u26F9|\uD83C[\uDFCB\uDFCC]|\uD83D\uDD75)(?:\uD83C[\uDFFB-\uDFFF])\u200D[\u2640\u2642]|(?:\uD83C[\uDFC3\uDFC4\uDFCA]|\uD83D[\uDC6E\uDC71\uDC73\uDC77\uDC81\uDC82\uDC86\uDC87\uDE45-\uDE47\uDE4B\uDE4D\uDE4E\uDEA3\uDEB4-\uDEB6]|\uD83E[\uDD26\uDD37-\uDD39\uDD3D\uDD3E\uDDB8\uDDB9\uDDD6-\uDDDD])(?:(?:\uD83C[\uDFFB-\uDFFF])\u200D[\u2640\u2642]|\u200D[\u2640\u2642])|\uD83D\uDC69\u200D[\u2695\u2696\u2708])\uFE0F|\uD83D\uDC69\u200D\uD83D\uDC67\u200D(?:\uD83D[\uDC66\uDC67])|\uD83D\uDC69\u200D\uD83D\uDC69\u200D(?:\uD83D[\uDC66\uDC67])|\uD83D\uDC68(?:\u200D(?:(?:\uD83D[\uDC68\uDC69])\u200D(?:\uD83D[\uDC66\uDC67])|\uD83D[\uDC66\uDC67])|\uD83C[\uDFFB-\uDFFF])|\uD83C\uDFF3\uFE0F\u200D\uD83C\uDF08|\uD83D\uDC69\u200D\uD83D\uDC67|\uD83D\uDC69(?:\uD83C[\uDFFB-\uDFFF])\u200D(?:\uD83C[\uDF3E\uDF73\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uD83E[\uDDB0-\uDDB3])|\uD83D\uDC69\u200D\uD83D\uDC66|\uD83C\uDDF6\uD83C\uDDE6|\uD83C\uDDFD\uD83C\uDDF0|\uD83C\uDDF4\uD83C\uDDF2|\uD83D\uDC69(?:\uD83C[\uDFFB-\uDFFF])|\uD83C\uDDED(?:\uD83C[\uDDF0\uDDF2\uDDF3\uDDF7\uDDF9\uDDFA])|\uD83C\uDDEC(?:\uD83C[\uDDE6\uDDE7\uDDE9-\uDDEE\uDDF1-\uDDF3\uDDF5-\uDDFA\uDDFC\uDDFE])|\uD83C\uDDEA(?:\uD83C[\uDDE6\uDDE8\uDDEA\uDDEC\uDDED\uDDF7-\uDDFA])|\uD83C\uDDE8(?:\uD83C[\uDDE6\uDDE8\uDDE9\uDDEB-\uDDEE\uDDF0-\uDDF5\uDDF7\uDDFA-\uDDFF])|\uD83C\uDDF2(?:\uD83C[\uDDE6\uDDE8-\uDDED\uDDF0-\uDDFF])|\uD83C\uDDF3(?:\uD83C[\uDDE6\uDDE8\uDDEA-\uDDEC\uDDEE\uDDF1\uDDF4\uDDF5\uDDF7\uDDFA\uDDFF])|\uD83C\uDDFC(?:\uD83C[\uDDEB\uDDF8])|\uD83C\uDDFA(?:\uD83C[\uDDE6\uDDEC\uDDF2\uDDF3\uDDF8\uDDFE\uDDFF])|\uD83C\uDDF0(?:\uD83C[\uDDEA\uDDEC-\uDDEE\uDDF2\uDDF3\uDDF5\uDDF7\uDDFC\uDDFE\uDDFF])|\uD83C\uDDEF(?:\uD83C[\uDDEA\uDDF2\uDDF4\uDDF5])|\uD83C\uDDF8(?:\uD83C[\uDDE6-\uDDEA\uDDEC-\uDDF4\uDDF7-\uDDF9\uDDFB\uDDFD-\uDDFF])|\uD83C\uDDEE(?:\uD83C[\uDDE8-\uDDEA\uDDF1-\uDDF4\uDDF6-\uDDF9])|\uD83C\uDDFF(?:\uD83C[\uDDE6\uDDF2\uDDFC])|\uD83C\uDDEB(?:\uD83C[\uDDEE-\uDDF0\uDDF2\uDDF4\uDDF7])|\uD83C\uDDF5(?:\uD83C[\uDDE6\uDDEA-\uDDED\uDDF0-\uDDF3\uDDF7-\uDDF9\uDDFC\uDDFE])|\uD83C\uDDE9(?:\uD83C[\uDDEA\uDDEC\uDDEF\uDDF0\uDDF2\uDDF4\uDDFF])|\uD83C\uDDF9(?:\uD83C[\uDDE6\uDDE8\uDDE9\uDDEB-\uDDED\uDDEF-\uDDF4\uDDF7\uDDF9\uDDFB\uDDFC\uDDFF])|\uD83C\uDDE7(?:\uD83C[\uDDE6\uDDE7\uDDE9-\uDDEF\uDDF1-\uDDF4\uDDF6-\uDDF9\uDDFB\uDDFC\uDDFE\uDDFF])|[#\*0-9]\uFE0F\u20E3|\uD83C\uDDF1(?:\uD83C[\uDDE6-\uDDE8\uDDEE\uDDF0\uDDF7-\uDDFB\uDDFE])|\uD83C\uDDE6(?:\uD83C[\uDDE8-\uDDEC\uDDEE\uDDF1\uDDF2\uDDF4\uDDF6-\uDDFA\uDDFC\uDDFD\uDDFF])|\uD83C\uDDF7(?:\uD83C[\uDDEA\uDDF4\uDDF8\uDDFA\uDDFC])|\uD83C\uDDFB(?:\uD83C[\uDDE6\uDDE8\uDDEA\uDDEC\uDDEE\uDDF3\uDDFA])|\uD83C\uDDFE(?:\uD83C[\uDDEA\uDDF9])|(?:\uD83C[\uDFC3\uDFC4\uDFCA]|\uD83D[\uDC6E\uDC71\uDC73\uDC77\uDC81\uDC82\uDC86\uDC87\uDE45-\uDE47\uDE4B\uDE4D\uDE4E\uDEA3\uDEB4-\uDEB6]|\uD83E[\uDD26\uDD37-\uDD39\uDD3D\uDD3E\uDDB8\uDDB9\uDDD6-\uDDDD])(?:\uD83C[\uDFFB-\uDFFF])|(?:\u26F9|\uD83C[\uDFCB\uDFCC]|\uD83D\uDD75)(?:\uD83C[\uDFFB-\uDFFF])|(?:[\u261D\u270A-\u270D]|\uD83C[\uDF85\uDFC2\uDFC7]|\uD83D[\uDC42\uDC43\uDC46-\uDC50\uDC66\uDC67\uDC70\uDC72\uDC74-\uDC76\uDC78\uDC7C\uDC83\uDC85\uDCAA\uDD74\uDD7A\uDD90\uDD95\uDD96\uDE4C\uDE4F\uDEC0\uDECC]|\uD83E[\uDD18-\uDD1C\uDD1E\uDD1F\uDD30-\uDD36\uDDB5\uDDB6\uDDD1-\uDDD5])(?:\uD83C[\uDFFB-\uDFFF])|(?:[\u231A\u231B\u23E9-\u23EC\u23F0\u23F3\u25FD\u25FE\u2614\u2615\u2648-\u2653\u267F\u2693\u26A1\u26AA\u26AB\u26BD\u26BE\u26C4\u26C5\u26CE\u26D4\u26EA\u26F2\u26F3\u26F5\u26FA\u26FD\u2705\u270A\u270B\u2728\u274C\u274E\u2753-\u2755\u2757\u2795-\u2797\u27B0\u27BF\u2B1B\u2B1C\u2B50\u2B55]|\uD83C[\uDC04\uDCCF\uDD8E\uDD91-\uDD9A\uDDE6-\uDDFF\uDE01\uDE1A\uDE2F\uDE32-\uDE36\uDE38-\uDE3A\uDE50\uDE51\uDF00-\uDF20\uDF2D-\uDF35\uDF37-\uDF7C\uDF7E-\uDF93\uDFA0-\uDFCA\uDFCF-\uDFD3\uDFE0-\uDFF0\uDFF4\uDFF8-\uDFFF]|\uD83D[\uDC00-\uDC3E\uDC40\uDC42-\uDCFC\uDCFF-\uDD3D\uDD4B-\uDD4E\uDD50-\uDD67\uDD7A\uDD95\uDD96\uDDA4\uDDFB-\uDE4F\uDE80-\uDEC5\uDECC\uDED0-\uDED2\uDEEB\uDEEC\uDEF4-\uDEF9]|\uD83E[\uDD10-\uDD3A\uDD3C-\uDD3E\uDD40-\uDD45\uDD47-\uDD70\uDD73-\uDD76\uDD7A\uDD7C-\uDDA2\uDDB0-\uDDB9\uDDC0-\uDDC2\uDDD0-\uDDFF])|(?:[#\*0-9\xA9\xAE\u203C\u2049\u2122\u2139\u2194-\u2199\u21A9\u21AA\u231A\u231B\u2328\u23CF\u23E9-\u23F3\u23F8-\u23FA\u24C2\u25AA\u25AB\u25B6\u25C0\u25FB-\u25FE\u2600-\u2604\u260E\u2611\u2614\u2615\u2618\u261D\u2620\u2622\u2623\u2626\u262A\u262E\u262F\u2638-\u263A\u2640\u2642\u2648-\u2653\u265F\u2660\u2663\u2665\u2666\u2668\u267B\u267E\u267F\u2692-\u2697\u2699\u269B\u269C\u26A0\u26A1\u26AA\u26AB\u26B0\u26B1\u26BD\u26BE\u26C4\u26C5\u26C8\u26CE\u26CF\u26D1\u26D3\u26D4\u26E9\u26EA\u26F0-\u26F5\u26F7-\u26FA\u26FD\u2702\u2705\u2708-\u270D\u270F\u2712\u2714\u2716\u271D\u2721\u2728\u2733\u2734\u2744\u2747\u274C\u274E\u2753-\u2755\u2757\u2763\u2764\u2795-\u2797\u27A1\u27B0\u27BF\u2934\u2935\u2B05-\u2B07\u2B1B\u2B1C\u2B50\u2B55\u3030\u303D\u3297\u3299]|\uD83C[\uDC04\uDCCF\uDD70\uDD71\uDD7E\uDD7F\uDD8E\uDD91-\uDD9A\uDDE6-\uDDFF\uDE01\uDE02\uDE1A\uDE2F\uDE32-\uDE3A\uDE50\uDE51\uDF00-\uDF21\uDF24-\uDF93\uDF96\uDF97\uDF99-\uDF9B\uDF9E-\uDFF0\uDFF3-\uDFF5\uDFF7-\uDFFF]|\uD83D[\uDC00-\uDCFD\uDCFF-\uDD3D\uDD49-\uDD4E\uDD50-\uDD67\uDD6F\uDD70\uDD73-\uDD7A\uDD87\uDD8A-\uDD8D\uDD90\uDD95\uDD96\uDDA4\uDDA5\uDDA8\uDDB1\uDDB2\uDDBC\uDDC2-\uDDC4\uDDD1-\uDDD3\uDDDC-\uDDDE\uDDE1\uDDE3\uDDE8\uDDEF\uDDF3\uDDFA-\uDE4F\uDE80-\uDEC5\uDECB-\uDED2\uDEE0-\uDEE5\uDEE9\uDEEB\uDEEC\uDEF0\uDEF3-\uDEF9]|\uD83E[\uDD10-\uDD3A\uDD3C-\uDD3E\uDD40-\uDD45\uDD47-\uDD70\uDD73-\uDD76\uDD7A\uDD7C-\uDDA2\uDDB0-\uDDB9\uDDC0-\uDDC2\uDDD0-\uDDFF])\uFE0F|(?:[\u261D\u26F9\u270A-\u270D]|\uD83C[\uDF85\uDFC2-\uDFC4\uDFC7\uDFCA-\uDFCC]|\uD83D[\uDC42\uDC43\uDC46-\uDC50\uDC66-\uDC69\uDC6E\uDC70-\uDC78\uDC7C\uDC81-\uDC83\uDC85-\uDC87\uDCAA\uDD74\uDD75\uDD7A\uDD90\uDD95\uDD96\uDE45-\uDE47\uDE4B-\uDE4F\uDEA3\uDEB4-\uDEB6\uDEC0\uDECC]|\uD83E[\uDD18-\uDD1C\uDD1E\uDD1F\uDD26\uDD30-\uDD39\uDD3D\uDD3E\uDDB5\uDDB6\uDDB8\uDDB9\uDDD1-\uDDDD]))/;
     // ----------------------------------------------------------------------
-    function makeTokenRe() {
-        var tokens = Object.keys(specials).map(escapeRegex).join('|');
-        return new RegExp(`("(?:\\\\[\\S\\s]|[^"])*"|\\/(?! )[^\\/\\\\]*(?:\\\\[\\S\\s][^\\/\\\\]*)*\\/[gimy]*(?=\\s|\\(|\\)|$)|\\(|\\)|'|"(?:\\\\[\\S\\s]|[^"])+|\\n|(?:\\\\[\\S\\s]|[^"])*"|;.*|(?:[-+]?(?:(?:\\.[0-9]+|[0-9]+\\.[0-9]+)(?:[eE][-+]?[0-9]+)?)|[0-9]+\\.)[0-9]|\\.{2,}|${tokens}|[^(\\s)]+)`, 'gim');
+    function makeTokenRe(begin, flags = 'gim') {
+        var prefix = begin ? '^\\s*' : '';
+        return new RegExp(`${prefix}("(?:\\\\[\\S\\s]|[^"])*"|\\/(?! )[^\\/\\\\]*(?:\\\\[\\S\\s][^\\/\\\\]*)*\\/[gimy]*(?=\\s|\\(|\\)|$)|\\(|\\)|'|"(?:\\\\[\\S\\s]|[^"])+|\\n|;.*|(?:[-+]?(?:(?:\\.[0-9]+|[0-9]+\\.[0-9]+)(?:[eE][-+]?[0-9]+)?)|[0-9]+\\.)[0-9]|\\.{2,}|[^(\\s)]+)`, flags);
     }
     /* eslint-enable */
     // ----------------------------------------------------------------------
@@ -432,6 +440,206 @@
             return arg;
         });
     }
+    var x = {
+        '#': function(stream) {
+            var parens = 0;
+            var result = [];
+            if (stream.peekToken() == '(') {
+                stream.readToken();
+            }
+            do {
+                var token = stream.peekToken();
+                if (token === Stream.eof) {
+                    break;
+                }
+                if (token === ')') {
+                    stream.readToken();
+                } else {
+                    result.push(readStream(stream));
+                }
+            } while(stream.peekToken() !== ')' && stream.peekToken() !== Stream.eof);
+            return result;
+        }
+    };
+    var readerMacros = [];
+    specials['#'] = Symbol('#');
+    function ParserArray(array) {
+        this.array = array;
+    }
+    function readStream(stream, env = global_env) {
+        var stack = [];
+        var result = [];
+        var special = null;
+        var special_tokens = Object.keys(specials);
+        var special_forms = special_tokens.map(s => specials[s].name);
+        var parens = 0;
+        var first_value = false;
+        var specials_stack = [];
+        var single_list_specials = [];
+        var special_count = 0;
+        function pop_join() {
+            var top = stack[stack.length - 1];
+            if (top instanceof Array && top[0] instanceof Symbol &&
+                special_forms.includes(top[0].name) &&
+                stack.length > 1 && !top[0].literal) {
+                stack.pop();
+                if (stack[stack.length - 1].length === 1 &&
+                    stack[stack.length - 1][0] instanceof Symbol) {
+                    stack[stack.length - 1].push(top);
+                } else if (false && stack[stack.length - 1].length === 0) {
+                    stack[stack.length - 1] = top;
+                } else if (stack[stack.length - 1] instanceof Pair) {
+                    if (stack[stack.length - 1].cdr instanceof Pair) {
+                        stack[stack.length - 1] = new Pair(
+                            stack[stack.length - 1],
+                            Pair.fromArray(top)
+                        );
+                    } else {
+                        stack[stack.length - 1].cdr = Pair.fromArray(top);
+                    }
+                } else {
+                    stack[stack.length - 1].push(top);
+                }
+            }
+        }
+        var tokens = [];
+        var single = true;
+        var sexp = false;
+        while (stream.peekToken() !== Stream.eof &&
+               ((stream.peekToken() === ')' && (parens > 0 || single)) ||
+                (stream.peekToken() !== ')' && (single || sexp)))) {
+            var token = stream.readToken();
+            if (token === '(') {
+                sexp = true;
+            } else if (token !== ')') {
+                single = false;
+            }
+            console.log({token});
+            /*if (token === '#') {
+                if (stack.length) {
+                    let val = x['#'](stream);
+                    if (Array.isArray(val)) {
+                        val = new ParserArray(val);
+                    }
+                    stack[stack.length - 1].push(val);
+                }
+                continue;
+            }
+            */
+            if (token.match(/^;/)) {
+                continue;
+            }
+            tokens.push(token);
+            var top = stack[stack.length - 1];
+            if (special_tokens.indexOf(token) !== -1) {
+                special_count++;
+                special = token;
+                stack.push([specials[special]]);
+                if (!special) {
+                    single_list_specials = [];
+                }
+                single_list_specials.push(special);
+            } else {
+                if (special) {
+                    specials_stack.push(single_list_specials);
+                    single_list_specials = [];
+                }
+                if (token === '(') {
+                    first_value = true;
+                    parens++;
+                    stack.push([]);
+                    special = null;
+                    special_count = 0;
+                } else if (token === '.' && !first_value) {
+                    stack[stack.length - 1] = Pair.fromArray(top);
+                } else if (token === ')') {
+                    parens--;
+                    if (!stack.length) {
+                        throw new Error('Unbalanced parentheses expect ) EOF found');
+                    }
+                    if (stack.length === 1) {
+                        result.push(stack.pop());
+                    } else if (stack.length > 1) {
+                        var list = stack.pop();
+                        top = stack[stack.length - 1];
+                        if (top instanceof Array) {
+                            top.push(list);
+                        } else if (top instanceof Pair) {
+                            top.append(Pair.fromArray(list));
+                        }
+                        if (specials_stack.length) {
+                            single_list_specials = specials_stack.pop();
+                            while (single_list_specials.length) {
+                                pop_join();
+                                single_list_specials.pop();
+                            }
+                        } else {
+                            pop_join();
+                        }
+                    }
+                    if (parens === 0 && stack.length) {
+                        result.push(stack.pop());
+                    }
+                } else {
+                    first_value = false;
+                    var value = parse_argument(token);
+                    if (special) {
+                        // special without list like ,foo
+                        while (special_count--) {
+                            stack[stack.length - 1].push(value);
+                            value = stack.pop();
+                        }
+                        specials_stack.pop();
+                        special_count = 0;
+                        special = false;
+                    } else if (value instanceof Symbol &&
+                               special_forms.includes(value.name)) {
+                        // handle parsing os special forms as literal symbols
+                        // (values they expand into)
+                        value.literal = true;
+                    }
+                    top = stack[stack.length - 1];
+                    if (top instanceof Pair) {
+                        var node = top;
+                        while (true) {
+                            if (node.cdr === nil) {
+                                if (value instanceof Array) {
+                                    node.cdr = Pair.fromArray(value);
+                                } else {
+                                    node.cdr = value;
+                                }
+                                break;
+                            } else {
+                                node = node.cdr;
+                            }
+                        }
+                    } else if (!stack.length) {
+                        result.push(value);
+                    } else {
+                        top.push(value);
+                    }
+                }
+            }
+        }
+        if (!tokens.filter(t => t.match(/^[()]$/)).length && stack.length) {
+            // list of parser macros
+            result = result.concat(stack);
+            stack = [];
+        }
+        if (stack.length) {
+            dump(result);
+            var code = tokens.join(' ').replace(/\(\s*/g, '(');
+            throw new Error('Unclosed parentheses in ' + code);
+        }
+        if (result.length) {
+            console.log(result);
+            result = result[0];
+            if (result instanceof Array) {
+                return Pair.fromArray(result);
+            }
+            return result;
+        }
+    }
     // ----------------------------------------------------------------------
     function unpromise(value, fn = x => x, error = null) {
         if (isPromise(value)) {
@@ -608,6 +816,141 @@
             return input.length;
         }
     }
+    // ----------------------------------------------------------------------
+    // :: function taken from jQuery Terminal (but with removed entites)
+    // ----------------------------------------------------------------------
+    function get_next_character(string) {
+        var match_emoji = string.match(emoji_re);
+        if (match_emoji) {
+            return match_emoji[1];
+        } else if (string.slice(0, 2).replace(astral_symbols_re, '_') === 1) {
+            if (string.slice(1).match(combine_chr_re)) {
+                return string.slice(0, 3);
+            }
+            return string.slice(0, 2);
+        } else {
+            var match_combo = string.match(combine_chr_re);
+            if (match_combo) {
+                return match_combo[1];
+            }
+            return string[0];
+        }
+    }
+    // ----------------------------------------------------------------------
+    // :: Stream class
+    // ----------------------------------------------------------------------
+    function Stream(string) {
+        this._string = string;
+        this.index = 0;
+        this._peekIndex = 0;
+        this.gc = [];
+    }
+    // ----------------------------------------------------------------------
+    Stream.prototype.line = function() {
+        var substring = this._string.substring(0, this.index);
+        var newlines = this._string.substring(0, this.index).match(/\n/g);
+        return newlines ? newlines.length : 0;
+    };
+    // ----------------------------------------------------------------------
+    Stream.prototype.eof = function() {
+        return this.index == this._string.length;
+    };
+    // ----------------------------------------------------------------------
+    Stream.prototype.peekChar = function(peekType) {
+        if (this.eof()) {
+            return Stream.eof;
+        }
+        var substring = this._string.substring(this.index);
+        if (peekType === true) {
+            var whitespace = substring.match(/^\s*/).length;
+            if (whitespace) {
+                this.index += whitespace;
+                substring = this._string.substring(this.index);
+            }
+        } else if (typeof peekType === 'string' || peekType instanceof RegExp) {
+            if (typeof peekType === 'string') {
+                peekType = new RegExp('^' + escapeRegex(peekType) + '$');
+            }
+                var chr;
+            do {
+                chr = get_next_character(substring);
+                if (!chr.match(peekType)) {
+                    this.index += chr.length;
+                }
+                substring = substring.substring(chr.length);
+            } while (!chr.match(peekType) && substring.length);
+            return chr;
+        }
+        return get_next_character(substring);
+    };
+    // ----------------------------------------------------------------------
+    Stream.eof = root.Symbol('eof');
+    // ----------------------------------------------------------------------
+    Stream.prototype.readChar = function() {
+        var chr = this.peekChar();
+        if (chr === Stream.eof) {
+            return chr;
+        }
+        this.index += chr.length;
+        return chr;
+    };
+    // ----------------------------------------------------------------------
+    Stream.prototype.peekToken = function() {
+        if (this._token) {
+            return this._token;
+        }
+        if (this.eof()) {
+            this._token = Stream.eof;
+            return Stream.eof;
+        }
+        var substring = this.string.substring(this.index);
+        this.gc.push(substring);
+        for (let re of [pre_parse_start_re, makeTokenRe(true, 'im')]) {
+            var m = substring.match(re);
+            if (m) {
+                this._peekIndex = this.index + m[0].length;
+                this._token = m[1];
+                return m[1];
+            }
+        }
+    };
+    // ----------------------------------------------------------------------
+    Stream.prototype.readToken = function() {
+        var token = this.peekToken();
+        if (token === Stream.eof) {
+            return token;
+        }
+        delete this._token;
+        this.index = this._peekIndex;
+        return token;
+    };
+    // ----------------------------------------------------------------------
+    function TokenStream(string) {
+        this._tokens = tokenize(string);
+        console.log({_tokens: this._tokens});
+        this._index = 0;
+    }
+    TokenStream.prototype.peekToken = function() {
+        if (!this._tokens[this._index]) {
+            return Stream.eof;
+        }
+        return this._tokens[this._index];
+    };
+    TokenStream.prototype.eof = function() {
+        return this.peekToken() === Stream.eof;
+    };
+    TokenStream.prototype.readToken = function() {
+        var token = this.peekToken();
+        if (token !== Stream.eof) {
+            this._index++;
+        }
+        return token;
+    };
+    function SubstringStream(string) {
+        this._tokens = string;
+        this._index = 0;
+    }
+    SubstringStream.prototype = Object.create(TokenStream.prototype);
     // ----------------------------------------------------------------------
     // :: Code formatter class
     // :: based on http://community.schemewiki.org/?scheme-style
@@ -1002,7 +1345,9 @@
             return emptyList();
         } else {
             var car;
-            if (array[0] instanceof Array) {
+            if (array[0] instanceof ParserArray) {
+                car = array[0].array;
+            } else if (array[0] instanceof Array) {
                 car = Pair.fromArray(array[0]);
             } else {
                 car = array[0];
@@ -1142,7 +1487,7 @@
                    value === nil) {
             return value.toString();
         } else if (value instanceof Array) {
-            return value.map(toString);
+            return '[' + value.map(toString).join(', ') + ']';
         } else if (typeof value === 'object') {
             if (value === null) {
                 return 'null';
@@ -3217,6 +3562,9 @@
             Function check if value is an object.`),
         // ------------------------------------------------------------------
         read: doc(function read(arg) {
+            if (arg instanceof Stream) {
+                
+            }
             if (typeof arg === 'string') {
                 return parse(tokenize(arg));
             }
@@ -4104,28 +4452,25 @@
         } else {
             env = env || global_env;
         }
-        var list = parse(string);
+        var stream = new TokenStream(string);
         var results = [];
-        while (true) {
-            var code = list.shift();
-            if (!code) {
-                return results;
-            } else {
-                var result = await evaluate(code, {
-                    env,
-                    dynamic_scope,
-                    error: (e, code) => {
-                        if (code) {
-                            // LIPS stack trace
-                            e.code = e.code || [];
-                            e.code.push(code.toString());
-                        }
-                        throw e;
+        while (!stream.eof()) {
+            var code = readStream(stream, env);
+            var result = await evaluate(code, {
+                env,
+                dynamic_scope,
+                error: (e, code) => {
+                    if (code) {
+                        // LIPS stack trace
+                        e.code = e.code || [];
+                        e.code.push(code.toString());
                     }
-                });
-                results.push(result);
-            }
+                    throw e;
+                }
+            });
+            results.push(result);
         }
+        return results;
     }
 
     // -------------------------------------------------------------------------
@@ -4246,8 +4591,12 @@
         quote,
         Pair,
         Formatter,
+        Stream,
+        readStream,
         specials,
         nil,
+        x,
+        TokenStream,
         resolvePromises,
         Symbol,
         LNumber
