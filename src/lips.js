@@ -1212,7 +1212,22 @@
         }
         detect(pair);
     }
+    // ----------------------------------------------------------------------
+    var call_cc = doc(
+        new Symbol(root.Symbol.for('call/cc')),
+        `(call-with-current-continuation function)
+         (call/cc function)
 
+         Special operator that will invoke function passed as argument with
+         current contination`);
+    // ----------------------------------------------------------------------
+    call_cc.toString = function() {
+        return '#<special-form>';
+    };
+    // ----------------------------------------------------------------------
+    function isCallCC(value) {
+        return value === call_cc;
+    }
     // ----------------------------------------------------------------------
     Pair.prototype.toString = function() {
         var arr = ['('];
@@ -1320,12 +1335,14 @@
         return macro;
     };
     // ----------------------------------------------------------------------
-    Macro.prototype.invoke = function(code, { env, dynamic_scope, error }, macro_expand) {
+    Macro.prototype.invoke = function(code, { env, dynamic_scope, error, k }, macro_expand) {
         var args = {
             dynamic_scope,
             error,
-            macro_expand
+            macro_expand,
+            k
         };
+        console.log({k});
         var result = this.fn.call(env, code, args, this.name);
         return macro_expand ? quote(result) : result;
     };
@@ -2361,7 +2378,7 @@
 
             Macro that create a loop, it exectue body untill cond expression is false`),
         // ------------------------------------------------------------------
-        'if': doc(new Macro('if', function(code, { dynamic_scope, error }) {
+        'if': doc(new Macro('if', function(code, { dynamic_scope, error, k }) {
             if (dynamic_scope) {
                 dynamic_scope = this;
             }
@@ -2369,20 +2386,36 @@
             var resolve = (cond) => {
                 typecheck('if', cond, 'boolean');
                 if (cond) {
-                    return evaluate(code.cdr.car, {
+                    return bounce(evalTramp, code.cdr.car, {
                         env,
                         dynamic_scope,
-                        error
+                        error,
+                        k
+                    });
+                    return _eval(code.cdr.car, {
+                        env,
+                        dynamic_scope,
+                        error,
+                        k
                     });
                 } else {
-                    return evaluate(code.cdr.cdr.car, {
+                    return bounce(evalTramp, code.cdr.cdr.car, {
                         env,
                         dynamic_scope,
-                        error
+                        error,
+                        k
                     });
+                    /*
+                    return _eval(code.cdr.cdr.car, {
+                        env,
+                        dynamic_scope,
+                        error,
+                        k
+                    });*/
                 }
             };
-            var cond = evaluate(code.car, { env, dynamic_scope, error });
+            return bounce(evalTramp, code.car, { env, dynamic_scope, error, k: resolve });
+            var cond = _eval(code.car, { env, dynamic_scope, error, k: resolve });
             return unpromise(cond, resolve);
         }), `(if cond true-expr false-expr)
 
@@ -2428,7 +2461,7 @@
             return (function loop() {
                 if (arr.length) {
                     var code = arr.shift();
-                    var ret = evaluate(code, args);
+                    var ret = _eval(code, args);
                     return unpromise(ret, value => {
                         result = value;
                         return loop();
@@ -2506,9 +2539,10 @@
                 eval_args.dynamic_scope = this;
             }
             eval_args.env = env;
+            const { k } = eval_args;
             var value = code.cdr.car;
             if (value instanceof Pair) {
-                value = evaluate(value, eval_args);
+                value = _eval(value, eval_args);
             } else if (value instanceof Symbol) {
                 value = env.get(value);
             }
@@ -2572,7 +2606,10 @@
 
             Function evalute LIPS code as list structure.`),
         // ------------------------------------------------------------------
-        lambda: new Macro('lambda', function(code, { dynamic_scope, error } = {}) {
+        'call-with-current-continuation': call_cc,
+        'call/cc': call_cc,
+        // ------------------------------------------------------------------
+        lambda: new Macro('lambda', function(code, { dynamic_scope, error, k } = {}) {
             var self = this;
             var __doc__;
             if (code.cdr instanceof Pair &&
@@ -2616,8 +2653,9 @@
                     dynamic_scope = env;
                 }
                 var rest = __doc__ ? code.cdr.cdr : code.cdr;
-                var output = new Pair(new Symbol('begin'), rest);
-                return evaluate(output, { env, dynamic_scope, error });
+                var output = rest.cdr === nil ? rest.car : new Pair(new Symbol('begin'), rest);
+                return bounce(evalTramp, output, { env, dynamic_scope, error, k });
+                return _eval(output, { env, dynamic_scope, error, k });
             }
             var length = code.car instanceof Pair ? code.car.length() : null;
             lambda.__code__ = new Pair(new Symbol('lambda'), code);
@@ -2644,7 +2682,7 @@
                     macro.cdr.cdr !== nil) {
                     __doc__ = macro.cdr.car;
                 }
-                this.env[name] = Macro.defmacro(name, function(code) {
+                this.env[name] = Macro.defmacro(name, function(code, { k }) {
                     var env = new Environment({}, this, 'defmacro');
                     var name = macro.car.cdr;
                     var arg = code;
@@ -2679,14 +2717,15 @@
                     var eval_args = {
                         env,
                         dynamic_scope,
-                        error
+                        error,
+                        k
                     };
                     // evaluate macro
                     if (macro.cdr instanceof Pair) {
                         // this eval will return lips code
                         var rest = __doc__ ? macro.cdr.cdr : macro.cdr;
                         var result = rest.reduce(function(result, node) {
-                            return evaluate(node, eval_args);
+                            return _eval(node, eval_args);
                         });
                         return unpromise(result, function(result) {
                             if (typeof result === 'object') {
@@ -4063,9 +4102,6 @@
     }
     // -------------------------------------------------------------------------
     function evaluateMacro(macro, code, eval_args) {
-        if (code instanceof Pair) {
-            //code = code.clone();
-        }
         var value = macro.invoke(code, eval_args);
         return unpromise(resolvePromises(value), function ret(value) {
             if (value && value.data || !value || selfEvaluated(value)) {
@@ -4074,6 +4110,222 @@
                 return quote(evaluate(value, eval_args));
             }
         });
+    }
+    // -------------------------------------------------------------------------
+    // trampoline and TOC code inspired by Nconc lisp interpter
+    // https://github.com/patrickdlogan/nconc
+    // -------------------------------------------------------------------------
+    // marker that finish trampoline
+    function Value(value) {
+        this.value = value;
+    }
+    // -------------------------------------------------------------------------
+    function land(value) {
+        return new Value(value);
+    }
+    // -------------------------------------------------------------------------
+    function Bouncer(fn, ...args) {
+        this.fn = fn;
+        this.args = args;
+        if (this.args[1] && this.args[1].env && !this.args[1].k) {
+            debugger;
+        }
+    }
+    // -------------------------------------------------------------------------
+    function bounce(...args) {
+        return new Bouncer(...args);
+    }
+    // -------------------------------------------------------------------------
+    Bouncer.prototype.invoke = function() {
+        return this.fn(...this.args);
+    };
+    // -------------------------------------------------------------------------
+    function trampoline(bouncer, ticks) {
+        while (true) {
+            if (bouncer instanceof Value) {
+                if (bouncer.value instanceof Bouncer) {
+                    bouncer = bouncer.value.invoke();
+                } else {
+                    return bouncer.value;
+                }
+            } else if (ticks === 0) {
+                return bouncer;
+            } else if (isPromise(bouncer)) {
+                return bouncer.then(value => {
+                    return trampoline(value, ticks);
+                });
+            } else if (bouncer instanceof Bouncer) {
+                var x = bouncer.invoke();
+                if (!(x instanceof Bouncer || x instanceof Value)) {
+                    console.log({x});
+                    window.bouncer = bouncer;
+                }
+                bouncer = x;
+                if (typeof ticks !== 'undefined') {
+                    ticks--;
+                }
+            } else {
+                throw new Error('Trampoline require Value or Bouncer instance');
+            }
+        }
+    }
+    // -------------------------------------------------------------------------
+    function _eval(code, { env, dynamic_scope, error = () => {}, k = land} = {}) {
+        return trampoline(evalTramp(code, {
+            env,
+            dynamic_scope,
+            error,
+            k
+        }));
+    }
+    function _evaluateMacro(macro, code, eval_args) {
+        var value = macro.invoke(code, eval_args);
+        return unpromise(resolvePromises(value), function ret(value) {
+            if (value && value.data || !value || selfEvaluated(value)) {
+                return value;
+            } else {
+                var k_prime = function(value) {
+                    return k(quote(value));
+                };
+                const { k, rest_args } = eval_args;
+                return bounce(evalTramp, value, {rest_args, k: k_prime});
+            }
+        });
+    }
+    function Continuation(fn) {
+        this.fn = fn;
+    }
+    function isPair(node) {
+        return node instanceof Pair && !isEmptyList(node);
+    }
+    // -------------------------------------------------------------------------
+    function apply(value, code, eval_args) {
+        const { k } = eval_args;
+        if (code instanceof Array) {
+            return invoke(value, code, eval_args);
+        } else if (code === nil) {
+            return apply(value, [], eval_args);
+        } else if (code instanceof Pair) {
+            var args = [];
+            function next(code) {
+                var k_prime = isEmptyList(code.cdr) || code.cdr === nil ? function(val) {
+                    args.push(val);
+                    return apply(value, args, eval_args);
+                } : function(val) {
+                    args.push(val);
+                    return next(code.cdr);
+                };
+                return bounce(evalTramp, code.car, {...eval_args, k: k_prime});
+            }
+            return next(code);
+        } else {
+            throw new Error('Invalid Invokcation');
+        }
+    }
+    // -------------------------------------------------------------------------
+    function invoke(value, args, eval_args) {
+        const { dynamic_scope, env, k, error } = eval_args;
+        var scope = dynamic_scope || env;
+        if (value === call_cc) {
+            typecheck('call/cc', args[0], 'function');
+            return invoke(args[0], [k], eval_args);
+        } else if (value instanceof Continuation) {
+            return value.invoke(args[0]);
+        } else if (typeof value === 'function') {
+            // check if is call/cc
+            var result = resolvePromises(value.apply(scope, args));
+            return unpromise(result, (result) => {
+                if (result instanceof Pair) {
+                    quote(result.markCycles());
+                }
+                return k(result);
+            }, error);
+        }
+    }
+    // -------------------------------------------------------------------------
+    function isExecutable(value) {
+        return typeof value === 'function' ||
+            value instanceof Continuation ||
+            value === call_cc;
+    }
+    // -------------------------------------------------------------------------
+    function evalTramp(code, { env, dynamic_scope, error = () => {}, k } = {}) {
+        try {
+            if (dynamic_scope === true) {
+                env = dynamic_scope = env || global_env;
+            } else if (env === true) {
+                env = dynamic_scope = global_env;
+            } else {
+                env = env || global_env;
+            }
+            var eval_args = { env, dynamic_scope, error, k };
+            var value;
+            if (isNull(code)) {
+                return k(code);
+            }
+            if (isEmptyList(code)) {
+                return k(emptyList());
+            }
+            if (code instanceof Symbol) {
+                return k(env.get(code, { weak: true }));
+            }
+            var first = code.car;
+            var rest = code.cdr;
+            if (first instanceof Pair) {
+                let k_prime = function(value) {
+                    value = resolvePromises(value);
+                    if (isPromise(value)) {
+                        return value.then((value) => {
+                            var new_code = new Pair(value, code.cdr);
+                            return bounce(evalTramp, new_code, eval_args);
+                        });
+                    } else if (isExecutable(value)) {
+                        return apply(value, code.cdr, eval_args);
+                    } else {
+                        throw new Error(
+                            type(value) + ' ' + env.get('string')(value) +
+                                ' is not executable while evaluating ' + code.toString()
+                        );
+                    }
+                };
+                return bounce(evalTramp, first, {...eval_args, k: k_prime});
+            } else if (first instanceof Symbol) {
+                value = env.get(first, { weak: true });
+                if (value instanceof Macro) {
+                    var ret = _evaluateMacro(value, rest, eval_args);
+                    return unpromise(ret, result => {
+                        if (result instanceof Pair) {
+                            result.markCycles();
+                        }
+                        return k(result);
+                    });
+                } else if (!isExecutable(value)) {
+                    if (value) {
+                        var msg = `${type(value)} \`${value}' is not executable`;
+                        throw new Error(msg);
+                    }
+                    throw new Error(`Unknown function \`${first.name}'`);
+                }
+            } else if (typeof first === 'function') {
+                value = first;
+            }
+            if (isExecutable(value)) {
+                return apply(value, code.cdr, eval_args);
+            } else if (code instanceof Symbol) {
+                value = env.get(code);
+                if (value === 'undefined') {
+                    throw new Error('Unbound variable `' + code.name + '\'');
+                }
+                return k(value);
+            } else if (code instanceof Pair) {
+                value = first && first.toString();
+                throw new Error(`${type(first)} ${value} is not a function`);
+            } else {
+                return k(code);
+            }
+        } catch (e) {
+            error && error(e, code);
+        }
     }
     // -------------------------------------------------------------------------
     function evaluate(code, { env, dynamic_scope, error = () => {} } = {}) {
@@ -4177,7 +4429,7 @@
             if (!code) {
                 return results;
             } else {
-                var result = await evaluate(code, {
+                var result = await _eval(code, {
                     env,
                     dynamic_scope,
                     error: (e, code) => {
@@ -4313,6 +4565,7 @@
         Pair,
         Formatter,
         specials,
+        _eval,
         nil,
         resolvePromises,
         Symbol,
