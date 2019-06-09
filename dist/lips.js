@@ -24,48 +24,48 @@
  * Copyright (c) 2014-present, Facebook, Inc.
  * released under MIT license
  *
- * build: Sun, 09 Jun 2019 06:56:18 +0000
+ * build: Sun, 09 Jun 2019 12:18:11 +0000
  */
 (function () {
   'use strict';
 
-  function _defineProperty(obj, key, value) {
-    if (key in obj) {
-      Object.defineProperty(obj, key, {
-        value: value,
-        enumerable: true,
-        configurable: true,
-        writable: true
-      });
-    } else {
-      obj[key] = value;
-    }
+  function _objectWithoutPropertiesLoose(source, excluded) {
+    if (source == null) return {};
+    var target = {};
+    var sourceKeys = Object.keys(source);
+    var key, i;
 
-    return obj;
-  }
-
-  var defineProperty = _defineProperty;
-
-  function _objectSpread(target) {
-    for (var i = 1; i < arguments.length; i++) {
-      var source = arguments[i] != null ? arguments[i] : {};
-      var ownKeys = Object.keys(source);
-
-      if (typeof Object.getOwnPropertySymbols === 'function') {
-        ownKeys = ownKeys.concat(Object.getOwnPropertySymbols(source).filter(function (sym) {
-          return Object.getOwnPropertyDescriptor(source, sym).enumerable;
-        }));
-      }
-
-      ownKeys.forEach(function (key) {
-        defineProperty(target, key, source[key]);
-      });
+    for (i = 0; i < sourceKeys.length; i++) {
+      key = sourceKeys[i];
+      if (excluded.indexOf(key) >= 0) continue;
+      target[key] = source[key];
     }
 
     return target;
   }
 
-  var objectSpread = _objectSpread;
+  var objectWithoutPropertiesLoose = _objectWithoutPropertiesLoose;
+
+  function _objectWithoutProperties(source, excluded) {
+    if (source == null) return {};
+    var target = objectWithoutPropertiesLoose(source, excluded);
+    var key, i;
+
+    if (Object.getOwnPropertySymbols) {
+      var sourceSymbolKeys = Object.getOwnPropertySymbols(source);
+
+      for (i = 0; i < sourceSymbolKeys.length; i++) {
+        key = sourceSymbolKeys[i];
+        if (excluded.indexOf(key) >= 0) continue;
+        if (!Object.prototype.propertyIsEnumerable.call(source, key)) continue;
+        target[key] = source[key];
+      }
+    }
+
+    return target;
+  }
+
+  var objectWithoutProperties = _objectWithoutProperties;
 
   function createCommonjsModule(fn, module) {
   	return module = { exports: {} }, fn(module, module.exports), module.exports;
@@ -117,6 +117,44 @@
 
   module.exports = _construct;
   });
+
+  function _defineProperty(obj, key, value) {
+    if (key in obj) {
+      Object.defineProperty(obj, key, {
+        value: value,
+        enumerable: true,
+        configurable: true,
+        writable: true
+      });
+    } else {
+      obj[key] = value;
+    }
+
+    return obj;
+  }
+
+  var defineProperty = _defineProperty;
+
+  function _objectSpread(target) {
+    for (var i = 1; i < arguments.length; i++) {
+      var source = arguments[i] != null ? arguments[i] : {};
+      var ownKeys = Object.keys(source);
+
+      if (typeof Object.getOwnPropertySymbols === 'function') {
+        ownKeys = ownKeys.concat(Object.getOwnPropertySymbols(source).filter(function (sym) {
+          return Object.getOwnPropertyDescriptor(source, sym).enumerable;
+        }));
+      }
+
+      ownKeys.forEach(function (key) {
+        defineProperty(target, key, source[key]);
+      });
+    }
+
+    return target;
+  }
+
+  var objectSpread = _objectSpread;
 
   var runtime_1 = createCommonjsModule(function (module) {
 
@@ -2518,9 +2556,6 @@
         macro_expand: macro_expand,
         k: k
       };
-      console.log({
-        k: k
-      });
       var result = this.fn.call(env, code, args, this.name);
       return macro_expand ? quote(result) : result;
     }; // ----------------------------------------------------------------------
@@ -2718,7 +2753,6 @@
       };
 
       hiddenProp(binded, 'name', fn.name);
-      console.log(binded.name);
       hiddenProp(binded, '__bound__', true);
 
       if (fn.__doc__) {
@@ -2857,7 +2891,8 @@
       return Macro.defmacro(name, function (code, options) {
         var dynamic_scope = options.dynamic_scope,
             error = options.error,
-            macro_expand = options.macro_expand;
+            macro_expand = options.macro_expand,
+            k = options.k;
         var args; // named let:
         // (let iter ((x 10)) (iter (- x 1))) -> (let* ((iter (lambda (x) ...
 
@@ -3949,45 +3984,59 @@
         return values.pop();
       }), "(begin* . expr)\n\n             This macro is parallel version of begin. It evaluate each expression and\n             if it's a promise it will evaluate it in parallel and return value\n             of last expression."),
       // ------------------------------------------------------------------
-      'begin': doc(new Macro('begin', function (code, options) {
-        var args = Object.assign({}, options);
-        var arr = this.get('list->array')(code);
+      'begin': doc(new Macro('begin', function (code, eval_args) {
+        var args = Object.assign({}, eval_args); //var arr = this.get('list->array')(code);
 
         if (args.dynamic_scope) {
           args.dynamic_scope = this;
         }
 
-        args.env = this;
-        var result;
-        return function loop() {
-          if (arr.length) {
-            var code = arr.shift();
+        args.env = this; // continuation sequence eval
 
-            var ret = _eval(code, args);
-
-            return unpromise(ret, function (value) {
-              result = value;
-              return loop();
+        function next(code) {
+          var k_prime = isEmptyList(code.cdr) || code.cdr === nil ? function (val) {
+            var k = args.k;
+            return k(val);
+          } : function (val) {
+            return unpromise(val, function () {
+              return next(code.cdr);
             });
-          } else {
-            return result;
-          }
-        }();
+          };
+          return bounce(evalTramp, code.car, objectSpread({}, args, {
+            k: k_prime
+          }));
+        }
+
+        return next(code);
       }), "(begin . args)\n\n             Macro runs list of expression and return valuate of the list one.\n             It can be used in place where you can only have single exression,\n             like if expression."),
+      // ------------------------------------------------------------------
+      'lips->js': doc(function (obj) {
+        if (obj !== nil) {
+          if (obj instanceof LNumber) {
+            return obj.valueOf();
+          } else if (typeof obj === 'function' && obj.__code__) {
+            return function () {
+              return trampoline(obj.apply(void 0, arguments), 1000);
+            };
+          }
+        }
+      }, "(lips->js obj)\n\n            Function unwrap LNumbers, convert nil value to undefined and return\n            lambda function that can be called outside of LIPS."),
       // ------------------------------------------------------------------
       'ignore': new Macro('ignore', function (code, _ref10) {
         var dynamic_scope = _ref10.dynamic_scope,
-            error = _ref10.error;
+            error = _ref10.error,
+            k = _ref10.k;
         var args = {
           env: this,
-          error: error
+          error: error,
+          k: k
         };
 
         if (dynamic_scope) {
           args.dynamic_scope = this;
         }
 
-        evaluate(new Pair(new _Symbol('begin'), code), args);
+        _eval(new Pair(new _Symbol('begin'), code), args);
       }, "(ignore expression)\n\n            Macro that will evaluate expression and swallow any promises that may\n            be created. It wil run and ignore any value that may be returned by\n            expression. The code should have side effects and/or when it's promise\n            it should resolve to undefined."),
       // ------------------------------------------------------------------
       timer: doc(new Macro('timer', function (code) {
@@ -4004,7 +4053,7 @@
 
         return new Promise(function (resolve) {
           setTimeout(function () {
-            resolve(evaluate(code.cdr.car, {
+            resolve(_eval(code.cdr.car, {
               env: env,
               dynamic_scope: dynamic_scope,
               error: error
@@ -4165,13 +4214,7 @@
             env: env,
             dynamic_scope: dynamic_scope,
             error: error,
-            k: k
-          });
-          return _eval(output, {
-            env: env,
-            dynamic_scope: dynamic_scope,
-            error: error,
-            k: k
+            k: land
           });
         }
 
@@ -4280,7 +4323,8 @@
       // ------------------------------------------------------------------
       quasiquote: Macro.defmacro('quasiquote', function (arg, env) {
         var dynamic_scope = env.dynamic_scope,
-            error = env.error;
+            error = env.error,
+            k = env.k;
         var self = this; //var max_unquote = 1;
 
         if (dynamic_scope) {
@@ -4341,11 +4385,13 @@
             return new Pair(new Pair(pair.car.car, recur(pair.car.cdr, unquote_cnt, max_unq)), nil);
           }
 
-          var eval_pair = evaluate(pair.car.cdr.car, {
+          var eval_pair = _eval(pair.car.cdr.car, {
             env: self,
             dynamic_scope: dynamic_scope,
-            error: error
+            error: error,
+            k: k
           });
+
           return unpromise(eval_pair, function (eval_pair) {
             if (!(eval_pair instanceof Pair)) {
               if (pair.cdr !== nil) {
@@ -4419,21 +4465,24 @@
                 if (pair.cdr.cdr !== nil) {
                   if (pair.cdr.car instanceof Pair) {
                     return unpromise(recur(pair.cdr.cdr, unquote_cnt, max_unq), function (value) {
-                      var unquoted = evaluate(pair.cdr.car, {
+                      var unquoted = _eval(pair.cdr.car, {
                         env: self,
                         dynamic_scope: dynamic_scope,
-                        error: error
+                        error: error,
+                        k: k
                       });
+
                       return new Pair(unquoted, value);
                     });
                   } else {
                     return pair.cdr;
                   }
                 } else {
-                  return evaluate(pair.cdr.car, {
+                  return _eval(pair.cdr.car, {
                     env: self,
                     dynamic_scope: dynamic_scope,
-                    error: error
+                    error: error,
+                    k: k
                   });
                 }
               } else {
@@ -4854,7 +4903,8 @@
         var _this4 = this;
 
         var dynamic_scope = _ref17.dynamic_scope,
-            _error = _ref17.error;
+            _error = _ref17.error,
+            k = _ref17.k;
         return new Promise(function (resolve) {
           var args = {
             env: _this4,
@@ -4874,14 +4924,15 @@
               unpromise(evaluate(new Pair(new _Symbol('begin'), code.cdr.car.cdr.cdr), args), function (result) {
                 resolve(result);
               });
-            }
+            },
+            k: k
           };
 
           if (dynamic_scope) {
             args.dynamic_scope = _this4;
           }
 
-          var ret = evaluate(code.car, args);
+          var ret = _eval(code.car, args);
 
           if (isPromise(ret)) {
             ret["catch"](args.error).then(resolve);
@@ -5421,7 +5472,7 @@
     function selfEvaluated(obj) {
       var type = _typeof_1(obj);
 
-      return ['string', 'function'].includes(type) || obj instanceof LNumber || obj instanceof RegExp;
+      return ['string', 'function'].includes(type) || obj instanceof Value || obj instanceof LNumber || obj instanceof RegExp;
     } // -------------------------------------------------------------------------
 
 
@@ -5652,6 +5703,10 @@
 
 
     function land(value) {
+      if (value instanceof Value) {
+        return value;
+      }
+
       return new Value(value);
     } // -------------------------------------------------------------------------
 
@@ -5664,10 +5719,6 @@
       }
 
       this.args = args;
-
-      if (this.args[1] && this.args[1].env && !this.args[1].k) {
-        debugger;
-      }
     } // -------------------------------------------------------------------------
 
 
@@ -5700,16 +5751,7 @@
             return trampoline(value, ticks);
           });
         } else if (bouncer instanceof Bouncer) {
-          var x = bouncer.invoke();
-
-          if (!(x instanceof Bouncer || x instanceof Value)) {
-            console.log({
-              x: x
-            });
-            window.bouncer = bouncer;
-          }
-
-          bouncer = x;
+          bouncer = bouncer.invoke();
 
           if (typeof ticks !== 'undefined') {
             ticks--;
@@ -5741,19 +5783,23 @@
     function _evaluateMacro(macro, code, eval_args) {
       var value = macro.invoke(code, eval_args);
       return unpromise(resolvePromises(value), function ret(value) {
+        if (value instanceof Pair) {
+          value.markCycles();
+        }
+
         if (value && value.data || !value || selfEvaluated(value)) {
-          return value;
+          return eval_args.k(value);
         } else {
           var k_prime = function k_prime(value) {
             return k(quote(value));
           };
 
           var k = eval_args.k,
-              rest_args = eval_args.rest_args;
-          return bounce(evalTramp, value, {
-            rest_args: rest_args,
+              rest_args = objectWithoutProperties(eval_args, ["k"]);
+
+          return bounce(evalTramp, value, objectSpread({}, rest_args, {
             k: k_prime
-          });
+          }));
         }
       });
     }
@@ -5805,11 +5851,14 @@
       } else if (value instanceof Continuation) {
         return value.invoke(args[0]);
       } else if (typeof value === 'function') {
-        // check if is call/cc
         var result = resolvePromises(value.apply(scope, args));
         return unpromise(result, function (result) {
           if (result instanceof Pair) {
             quote(result.markCycles());
+          }
+
+          if (result instanceof Bouncer) {
+            return k(trampoline(result));
           }
 
           return k(result);
@@ -5890,15 +5939,7 @@
           });
 
           if (value instanceof Macro) {
-            var ret = _evaluateMacro(value, rest, eval_args);
-
-            return unpromise(ret, function (result) {
-              if (result instanceof Pair) {
-                result.markCycles();
-              }
-
-              return k(result);
-            });
+            return _evaluateMacro(value, rest, eval_args);
           } else if (!isExecutable(value)) {
             if (value) {
               var msg = "".concat(type(value), " `").concat(value, "' is not executable");

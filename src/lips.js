@@ -1342,7 +1342,6 @@
             macro_expand,
             k
         };
-        console.log({k});
         var result = this.fn.call(env, code, args, this.name);
         return macro_expand ? quote(result) : result;
     };
@@ -1419,7 +1418,6 @@
             return binded.__bind.fn.apply(context, args);
         };
         hiddenProp(binded, 'name', fn.name);
-        console.log(binded.name);
         hiddenProp(binded, '__bound__', true);
         if (fn.__doc__) {
             binded.__doc__ = fn.__doc__;
@@ -1522,7 +1520,7 @@
     function let_macro(asterisk) {
         var name = 'let' + (asterisk ? '*' : '');
         return Macro.defmacro(name, function(code, options) {
-            var { dynamic_scope, error, macro_expand } = options;
+            var { dynamic_scope, error, macro_expand, k } = options;
             var args;
             // named let:
             // (let iter ((x 10)) (iter (- x 1))) -> (let* ((iter (lambda (x) ...
@@ -2450,38 +2448,51 @@
              if it's a promise it will evaluate it in parallel and return value
              of last expression.`),
         // ------------------------------------------------------------------
-        'begin': doc(new Macro('begin', function(code, options) {
-            var args = Object.assign({ }, options);
-            var arr = this.get('list->array')(code);
+        'begin': doc(new Macro('begin', function(code, eval_args) {
+            var args = Object.assign({ }, eval_args);
+            //var arr = this.get('list->array')(code);
             if (args.dynamic_scope) {
                 args.dynamic_scope = this;
             }
             args.env = this;
-            var result;
-            return (function loop() {
-                if (arr.length) {
-                    var code = arr.shift();
-                    var ret = _eval(code, args);
-                    return unpromise(ret, value => {
-                        result = value;
-                        return loop();
-                    });
-                } else {
-                    return result;
-                }
-            })();
+            // continuation sequence eval
+            function next(code) {
+                var k_prime = isEmptyList(code.cdr) || code.cdr === nil ? function(val) {
+                    const { k } = args;
+                    return k(val);
+                } : function(val) {
+                    return unpromise(val, () => next(code.cdr));
+                };
+                return bounce(evalTramp, code.car, {...args, k: k_prime});
+            }
+            return next(code);
         }), `(begin . args)
 
              Macro runs list of expression and return valuate of the list one.
              It can be used in place where you can only have single exression,
              like if expression.`),
         // ------------------------------------------------------------------
-        'ignore': new Macro('ignore', function(code, { dynamic_scope, error }) {
-            var args = { env: this, error };
+        'lips->js': doc(function(obj) {
+            if (obj !== nil) {
+                if (obj instanceof LNumber) {
+                    return obj.valueOf();
+                } else if (typeof obj === 'function' && obj.__code__) {
+                    return function(...args) {
+                        return trampoline(obj(...args), 1000);
+                    };
+                }
+            }
+        }, `(lips->js obj)
+
+            Function unwrap LNumbers, convert nil value to undefined and return
+            lambda function that can be called outside of LIPS.`),
+        // ------------------------------------------------------------------
+        'ignore': new Macro('ignore', function(code, { dynamic_scope, error, k }) {
+            var args = { env: this, error, k };
             if (dynamic_scope) {
                 args.dynamic_scope = this;
             }
-            evaluate(new Pair(new Symbol('begin'), code), args);
+            _eval(new Pair(new Symbol('begin'), code), args);
         }, `(ignore expression)
 
             Macro that will evaluate expression and swallow any promises that may
@@ -2497,7 +2508,7 @@
             }
             return new Promise((resolve) => {
                 setTimeout(() => {
-                    resolve(evaluate(code.cdr.car, {
+                    resolve(_eval(code.cdr.car, {
                         env,
                         dynamic_scope,
                         error
@@ -2654,8 +2665,7 @@
                 }
                 var rest = __doc__ ? code.cdr.cdr : code.cdr;
                 var output = rest.cdr === nil ? rest.car : new Pair(new Symbol('begin'), rest);
-                return bounce(evalTramp, output, { env, dynamic_scope, error, k });
-                return _eval(output, { env, dynamic_scope, error, k });
+                return bounce(evalTramp, output, { env, dynamic_scope, error, k: land });
             }
             var length = code.car instanceof Pair ? code.car.length() : null;
             lambda.__code__ = new Pair(new Symbol('lambda'), code);
@@ -2772,7 +2782,7 @@
             into list structure created by queasiquote.`),
         // ------------------------------------------------------------------
         quasiquote: Macro.defmacro('quasiquote', function(arg, env) {
-            var { dynamic_scope, error } = env;
+            var { dynamic_scope, error, k } = env;
             var self = this;
             //var max_unquote = 1;
             if (dynamic_scope) {
@@ -2825,10 +2835,11 @@
                         nil
                     );
                 }
-                var eval_pair = evaluate(pair.car.cdr.car, {
+                var eval_pair = _eval(pair.car.cdr.car, {
                     env: self,
                     dynamic_scope,
-                    error
+                    error,
+                    k
                 });
                 return unpromise(eval_pair, function(eval_pair) {
                     if (!(eval_pair instanceof Pair)) {
@@ -2904,10 +2915,11 @@
                                     return unpromise(
                                         recur(pair.cdr.cdr, unquote_cnt, max_unq),
                                         function(value) {
-                                            var unquoted = evaluate(pair.cdr.car, {
+                                            var unquoted = _eval(pair.cdr.car, {
                                                 env: self,
                                                 dynamic_scope,
-                                                error
+                                                error,
+                                                k
                                             });
                                             return new Pair(unquoted, value);
                                         }
@@ -2916,10 +2928,11 @@
                                     return pair.cdr;
                                 }
                             } else {
-                                return evaluate(pair.cdr.car, {
+                                return _eval(pair.cdr.car, {
                                     env: self,
                                     dynamic_scope,
-                                    error
+                                    error,
+                                    k
                                 });
                             }
                         } else {
@@ -3395,7 +3408,7 @@
 
             Function return length of the object, the object can be list
             or any object that have length property.`),
-        'try': doc(new Macro('try', function(code, { dynamic_scope, error }) {
+        'try': doc(new Macro('try', function(code, { dynamic_scope, error, k }) {
             return new Promise((resolve) => {
                 var args = {
                     env: this,
@@ -3415,12 +3428,13 @@
                         ), args), function(result) {
                             resolve(result);
                         });
-                    }
+                    },
+                    k
                 };
                 if (dynamic_scope) {
                     args.dynamic_scope = this;
                 }
-                var ret = evaluate(code.car, args);
+                var ret = _eval(code.car, args);
                 if (isPromise(ret)) {
                     ret.catch(args.error).then(resolve);
                 } else {
@@ -3989,6 +4003,7 @@
     function selfEvaluated(obj) {
         var type = typeof obj;
         return ['string', 'function'].includes(type) ||
+            obj instanceof Value ||
             obj instanceof LNumber ||
             obj instanceof RegExp;
     }
@@ -4121,15 +4136,15 @@
     }
     // -------------------------------------------------------------------------
     function land(value) {
+        if (value instanceof Value) {
+            return value;
+        }
         return new Value(value);
     }
     // -------------------------------------------------------------------------
     function Bouncer(fn, ...args) {
         this.fn = fn;
         this.args = args;
-        if (this.args[1] && this.args[1].env && !this.args[1].k) {
-            debugger;
-        }
     }
     // -------------------------------------------------------------------------
     function bounce(...args) {
@@ -4155,12 +4170,7 @@
                     return trampoline(value, ticks);
                 });
             } else if (bouncer instanceof Bouncer) {
-                var x = bouncer.invoke();
-                if (!(x instanceof Bouncer || x instanceof Value)) {
-                    console.log({x});
-                    window.bouncer = bouncer;
-                }
-                bouncer = x;
+                bouncer = bouncer.invoke();
                 if (typeof ticks !== 'undefined') {
                     ticks--;
                 }
@@ -4181,14 +4191,17 @@
     function _evaluateMacro(macro, code, eval_args) {
         var value = macro.invoke(code, eval_args);
         return unpromise(resolvePromises(value), function ret(value) {
+            if (value instanceof Pair) {
+                value.markCycles();
+            }
             if (value && value.data || !value || selfEvaluated(value)) {
-                return value;
+                return eval_args.k(value);
             } else {
                 var k_prime = function(value) {
                     return k(quote(value));
                 };
-                const { k, rest_args } = eval_args;
-                return bounce(evalTramp, value, {rest_args, k: k_prime});
+                const { k, ...rest_args } = eval_args;
+                return bounce(evalTramp, value, {...rest_args, k: k_prime});
             }
         });
     }
@@ -4232,11 +4245,13 @@
         } else if (value instanceof Continuation) {
             return value.invoke(args[0]);
         } else if (typeof value === 'function') {
-            // check if is call/cc
             var result = resolvePromises(value.apply(scope, args));
             return unpromise(result, (result) => {
                 if (result instanceof Pair) {
                     quote(result.markCycles());
+                }
+                if (result instanceof Bouncer) {
+                    return k(trampoline(result));
                 }
                 return k(result);
             }, error);
@@ -4292,13 +4307,7 @@
             } else if (first instanceof Symbol) {
                 value = env.get(first, { weak: true });
                 if (value instanceof Macro) {
-                    var ret = _evaluateMacro(value, rest, eval_args);
-                    return unpromise(ret, result => {
-                        if (result instanceof Pair) {
-                            result.markCycles();
-                        }
-                        return k(result);
-                    });
+                    return _evaluateMacro(value, rest, eval_args);
                 } else if (!isExecutable(value)) {
                     if (value) {
                         var msg = `${type(value)} \`${value}' is not executable`;
