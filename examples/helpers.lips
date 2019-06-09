@@ -141,7 +141,7 @@
   `(new Promise (value (lambda (resolve)
                          (setTimeout (value (lambda ()
                                               (resolve (begin ,@expr))))
-                                     ,time))))
+                                     ,time)))))
 
 ;; ---------------------------------------------------------------------------------------
 (define (pair-map fn seq-list)

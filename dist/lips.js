@@ -24,7 +24,7 @@
  * Copyright (c) 2014-present, Facebook, Inc.
  * released under MIT license
  *
- * build: Sun, 09 Jun 2019 12:18:11 +0000
+ * build: Sun, 09 Jun 2019 12:50:32 +0000
  */
 (function () {
   'use strict';
@@ -2918,40 +2918,47 @@
         var self = this;
         args = this.get('list->array')(code.car);
         var env = self.inherit('let');
-        var i = 0;
-        return function loop() {
-          var pair = args[i++];
+        args = code.car;
 
-          function set(value) {
-            if (isPromise(value)) {
-              return value.then(set);
-            } else if (typeof value === 'undefined') {
-              env.set(pair.car, nil);
-            } else {
-              env.set(pair.car, value);
+        function set(symbol, value) {
+          if (typeof value === 'undefined') {
+            env.set(symbol, nil);
+          } else {
+            env.set(symbol, value);
+          }
+        }
+
+        var rest = code.cdr;
+
+        function next(pair) {
+          var k_prime = isEmptyList(pair.cdr) || pair.cdr === nil ? function (val) {
+            set(symbol, val);
+
+            if (dynamic_scope) {
+              dynamic_scope = asterisk ? env : self;
             }
-          }
 
-          if (dynamic_scope) {
-            dynamic_scope = asterisk ? env : self;
-          }
-
-          if (!pair) {
             var output = new Pair(new _Symbol('begin'), code.cdr);
-            return evaluate(output, {
+            return bounce(evalTramp, output, {
               env: env,
               dynamic_scope: dynamic_scope,
-              error: error
+              error: error,
+              k: k
             });
-          } else {
-            var value = evaluate(pair.cdr.car, {
-              env: asterisk ? env : self,
-              dynamic_scope: dynamic_scope,
-              error: error
-            });
-            return unpromise(set(value), loop);
-          }
-        }();
+          } : function (val) {
+            set(symbol, val);
+            return next(pair.cdr);
+          };
+          var symbol = pair.car.car;
+          return bounce(evalTramp, pair.car.cdr.car, {
+            env: asterisk ? env : self,
+            dynamic_scope: dynamic_scope,
+            error: error,
+            k: k_prime
+          });
+        }
+
+        return next(args);
       });
     } // -------------------------------------------------------------------------
 
