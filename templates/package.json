@@ -26,9 +26,8 @@
   "homepage": "https://github.com/jcubic/lips#readme",
   "eslintConfig": {
     "parserOptions": {
-      "ecmaVersion": 2017,
-      "sourceType": "module",
-      "ecmaFeatures": {}
+      "ecmaVersion": 2018,
+      "sourceType": "module"
     },
     "env": {
       "browser": true,

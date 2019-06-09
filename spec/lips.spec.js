@@ -562,7 +562,7 @@ describe('evaluate', function() {
                 ])));
         });
     });
-    fdescribe('trampoline', function() {
+    describe('trampoline', function() {
         var code = `(define Y
                        (lambda (h)
                           ((lambda (x) (x x))

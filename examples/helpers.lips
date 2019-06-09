@@ -232,6 +232,9 @@
   (let* ((name (car spec))
          (symbol (cadr spec))
          (args (cddr spec)))
+    (print args)
+    (print symbol)
+    (print name)
      `(begin
         (add-special! ,symbol ',name)
         (define-macro (,name ,@args) ,@rest))))
