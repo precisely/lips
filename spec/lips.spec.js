@@ -1,7 +1,8 @@
 /* global require, describe, it, expect */
 
-var lips = require('../dist/lips');
-
+//var lips = require('../dist/lips');
+import 'babel-polyfill';
+var lips = require('../src/lips');
 var {
     parse,
     tokenize,

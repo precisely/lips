@@ -2343,7 +2343,7 @@
 
             Function fetch the file and evaluate its content as LIPS code.`),
         // ------------------------------------------------------------------
-        'while': doc(new Macro('while', function(code, { dynamic_scope, error }) {
+        'while': doc(new Macro('while', function(code, { dynamic_scope, error, k }) {
             var self = this;
             var begin = new Pair(
                 new Symbol('begin'),
@@ -2353,33 +2353,26 @@
             if (dynamic_scope) {
                 dynamic_scope = self;
             }
-            return (function loop() {
-                var cond = evaluate(code.car, {
-                    env: self,
-                    dynamic_scope,
-                    error
-                });
-                function next(cond) {
-                    if (cond && !isNull(cond) && !isEmptyList(cond)) {
-                        result = evaluate(begin, {
-                            env: self,
-                            dynamic_scope,
-                            error
-                        });
-                        if (isPromise(result)) {
-                            return result.then(ret => {
-                                result = ret;
-                                return loop();
+            const eval_args = { dynamic_scope, env: this, error };
+            function loop(code) {
+                var k_prime = function(val) {
+                    return unpromise(val, (cond) => {
+                        if (cond) {
+                            return bounce(evalTramp, begin, {
+                                ...eval_args,
+                                k: (val) => {
+                                    result = val;
+                                    return loop(code);
+                                }
                             });
                         } else {
-                            return loop();
+                            return unpromise(result, k);
                         }
-                    } else {
-                        return result;
-                    }
-                }
-                return unpromise(cond, next);
-            })();
+                    });
+                };
+                return bounce(evalTramp, code.car, {...eval_args, k: k_prime});
+            }
+            return loop(code);
         }), `(while cond . body)
 
             Macro that create a loop, it exectue body untill cond expression is false`),
@@ -2464,21 +2457,6 @@
              Macro runs list of expression and return valuate of the list one.
              It can be used in place where you can only have single exression,
              like if expression.`),
-        // ------------------------------------------------------------------
-        'lips->js': doc(function(obj) {
-            if (obj !== nil) {
-                if (obj instanceof LNumber) {
-                    return obj.valueOf();
-                } else if (typeof obj === 'function' && obj.__code__) {
-                    return function(...args) {
-                        return trampoline(obj(...args), 1000);
-                    };
-                }
-            }
-        }, `(lips->js obj)
-
-            Function unwrap LNumbers, convert nil value to undefined and return
-            lambda function that can be called outside of LIPS.`),
         // ------------------------------------------------------------------
         'ignore': new Macro('ignore', function(code, { dynamic_scope, error, k }) {
             var args = { env: this, error, k };
@@ -2574,6 +2552,7 @@
         }, `(set-obj! obj key value)
 
             Function set property of JavaScript object`),
+        // ------------------------------------------------------------------
         'current-environment': doc(function() {
             return this;
         }, `(current-environment)
@@ -2765,6 +2744,7 @@
              argument). It will return list of pairs if put in front of lips code.
              And if put in fron of symbol it will return that symbol not value
              associated with that name.`),
+        // ------------------------------------------------------------------
         'unquote-splicing': doc(function() {
             throw new Error(`You can't call \`unquote-splicing\` outside of quasiquote`);
         }, `(unquote-splicing code)
@@ -2773,6 +2753,7 @@
             characters ,@ and create call to this pseudo function. It can be used
             to evalute expression inside and return the value without parenthesis.
             the value will be joined to the output list structure.`),
+        // ------------------------------------------------------------------
         'unquote': doc(function() {
             throw new Error(`You can't call \`unquote\` outside of quasiquote`);
         }, `(unquote code)
@@ -2982,6 +2963,7 @@
 
             Function will create new list with value appended to the end. It return
             New list.`),
+        // ------------------------------------------------------------------
         'append!': doc(function(list, item) {
             typecheck('append!', list, 'pair');
             if (isNull(item) || isEmptyList(item)) {
@@ -3407,6 +3389,7 @@
 
             Function return length of the object, the object can be list
             or any object that have length property.`),
+        // ------------------------------------------------------------------
         'try': doc(new Macro('try', function(code, { dynamic_scope, error, k }) {
             return new Promise((resolve) => {
                 var args = {

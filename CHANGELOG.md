@@ -1,8 +1,6 @@
 ## 0.17.0
-### Breaking
-* calling js function with LIPS function require to call lips->js because of continuations and TOC
 ### Features
-* proper continuations and Tail Call Optimizations (inspired by implementation from nconc lips).
+* proper Tail Call Optimizations and continuations (inspired by implementation from nconc lisp)
 
 ## 0.16.2
 ### Bug fixes

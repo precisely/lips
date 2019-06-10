@@ -92,7 +92,17 @@
   (and (string? string) (as.data (new (. lips "Symbol") string))))
 
 ;; ---------------------------------------------------------------------------------------
+(define (value obj)
+  "(value obj)
 
+   Function unwrap LNumbers and convert nil value to undefined."
+  (if (eq? obj nil)
+      undefined
+      (if (number? obj)
+          ((. obj "valueOf"))
+          obj)))
+
+;; ---------------------------------------------------------------------------------------
 (define-macro (define-global first . rest)
   "(define-global var value)
    (define-global (name . args) body)
@@ -137,11 +147,13 @@
       ((. alist "toObject"))))
 
 
+
+
 (define-macro (delay time . expr)
-  `(new Promise (value (lambda (resolve)
-                         (setTimeout (value (lambda ()
-                                              (resolve (begin ,@expr))))
-                                     ,time)))))
+  `(new Promise (lambda (resolve)
+                  (setTimeout  (lambda ()
+                                 (resolve (begin ,@expr)))
+                               ,time))))
 
 ;; ---------------------------------------------------------------------------------------
 (define (pair-map fn seq-list)

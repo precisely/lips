@@ -24,7 +24,7 @@
  * Copyright (c) 2014-present, Facebook, Inc.
  * released under MIT license
  *
- * build: Sun, 09 Jun 2019 21:11:43 +0000
+ * build: Mon, 10 Jun 2019 07:48:47 +0000
  */
 (function () {
 	'use strict';
@@ -3889,7 +3889,8 @@
 	    // ------------------------------------------------------------------
 	    'while': doc(new Macro('while', function (code, _ref8) {
 	      var dynamic_scope = _ref8.dynamic_scope,
-	          error = _ref8.error;
+	          error = _ref8.error,
+	          k = _ref8.k;
 	      var self = this;
 	      var begin = new Pair(new _Symbol('begin'), code.cdr);
 	      var result;
@@ -3898,36 +3899,34 @@
 	        dynamic_scope = self;
 	      }
 
-	      return function loop() {
-	        var cond = evaluate(code.car, {
-	          env: self,
-	          dynamic_scope: dynamic_scope,
-	          error: error
-	        });
+	      var eval_args = {
+	        dynamic_scope: dynamic_scope,
+	        env: this,
+	        error: error
+	      };
 
-	        function next(cond) {
-	          if (cond && !isNull(cond) && !isEmptyList(cond)) {
-	            result = evaluate(begin, {
-	              env: self,
-	              dynamic_scope: dynamic_scope,
-	              error: error
-	            });
-
-	            if (isPromise(result)) {
-	              return result.then(function (ret) {
-	                result = ret;
-	                return loop();
-	              });
+	      function loop(code) {
+	        var k_prime = function k_prime(val) {
+	          return unpromise(val, function (cond) {
+	            if (cond) {
+	              return bounce(evalTramp, begin, objectSpread({}, eval_args, {
+	                k: function k(val) {
+	                  result = val;
+	                  return loop(code);
+	                }
+	              }));
 	            } else {
-	              return loop();
+	              return unpromise(result, k);
 	            }
-	          } else {
-	            return result;
-	          }
-	        }
+	          });
+	        };
 
-	        return unpromise(cond, next);
-	      }();
+	        return bounce(evalTramp, code.car, objectSpread({}, eval_args, {
+	          k: k_prime
+	        }));
+	      }
+
+	      return loop(code);
 	    }), "(while cond . body)\n\n            Macro that create a loop, it exectue body untill cond expression is false"),
 	    // ------------------------------------------------------------------
 	    'if': doc(new Macro('if', function (code, _ref9) {
@@ -4000,18 +3999,6 @@
 
 	      return next(code);
 	    }), "(begin . args)\n\n             Macro runs list of expression and return valuate of the list one.\n             It can be used in place where you can only have single exression,\n             like if expression."),
-	    // ------------------------------------------------------------------
-	    'lips->js': doc(function (obj) {
-	      if (obj !== nil) {
-	        if (obj instanceof LNumber) {
-	          return obj.valueOf();
-	        } else if (typeof obj === 'function' && obj.__code__) {
-	          return function () {
-	            return trampoline(obj.apply(void 0, arguments), 1000);
-	          };
-	        }
-	      }
-	    }, "(lips->js obj)\n\n            Function unwrap LNumbers, convert nil value to undefined and return\n            lambda function that can be called outside of LIPS."),
 	    // ------------------------------------------------------------------
 	    'ignore': new Macro('ignore', function (code, _ref10) {
 	      var dynamic_scope = _ref10.dynamic_scope,
@@ -4099,6 +4086,7 @@
 
 	      unbind(obj)[key] = value;
 	    }, "(set-obj! obj key value)\n\n            Function set property of JavaScript object"),
+	    // ------------------------------------------------------------------
 	    'current-environment': doc(function () {
 	      return this;
 	    }, "(current-environment)\n\n            Function return current environement."),
@@ -4321,9 +4309,11 @@
 	    quote: doc(new Macro('quote', function (arg) {
 	      return quote(arg.car);
 	    }), "(quote expression)\n\n             Macro that return single lips expression as data (it don't evaluate its\n             argument). It will return list of pairs if put in front of lips code.\n             And if put in fron of symbol it will return that symbol not value\n             associated with that name."),
+	    // ------------------------------------------------------------------
 	    'unquote-splicing': doc(function () {
 	      throw new Error("You can't call `unquote-splicing` outside of quasiquote");
 	    }, "(unquote-splicing code)\n\n            Special form to be used in quasiquote macro, parser is processing special\n            characters ,@ and create call to this pseudo function. It can be used\n            to evalute expression inside and return the value without parenthesis.\n            the value will be joined to the output list structure."),
+	    // ------------------------------------------------------------------
 	    'unquote': doc(function () {
 	      throw new Error("You can't call `unquote` outside of quasiquote");
 	    }, "(unquote code)\n\n            Special form to be used in quasiquote macro, parser is processing special\n            characters , and create call to this pseudo function. It can be used\n            to evalute expression inside and return the value, the output is inserted\n            into list structure created by queasiquote."),
@@ -4533,6 +4523,7 @@
 	      typecheck('append', list, 'pair');
 	      return this.get('append!')(list.clone(), item);
 	    }, "(append list item)\n\n            Function will create new list with value appended to the end. It return\n            New list."),
+	    // ------------------------------------------------------------------
 	    'append!': doc(function (list, item) {
 	      typecheck('append!', list, 'pair');
 
@@ -4904,6 +4895,7 @@
 	        return LNumber(obj.length);
 	      }
 	    }, "(length expression)\n\n            Function return length of the object, the object can be list\n            or any object that have length property."),
+	    // ------------------------------------------------------------------
 	    'try': doc(new Macro('try', function (code, _ref17) {
 	      var _this4 = this;
 
