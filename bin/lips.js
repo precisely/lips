@@ -93,11 +93,14 @@ function boostrap() {
         var path;
         try {
             path = require.resolve(`./${name}`);
+            console.log('A');
         } catch (e) {
             try {
                 path = require.resolve(`../${name}`);
+                console.log('B');
             } catch (e) {
                 path = require.resolve(`@jcubic/lips/../${name}`);
+                console.log('C');
             }
         }
         var data = fs.readFileSync(path);

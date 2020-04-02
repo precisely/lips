@@ -1,5 +1,5 @@
 /**@license
- * LIPS is Pretty Simple - simple scheme like lisp in JavaScript - v. DEV
+ * LIPS is Pretty Simple - simple scheme like lisp in JavaScript - v. 0.20.1
  *
  * Copyright (c) 2018-2019 Jakub T. Jankiewicz <https://jcubic.pl/me>
  * Released under the MIT license
@@ -24,7 +24,7 @@
  * Copyright (c) 2014-present, Facebook, Inc.
  * released under MIT license
  *
- * build: Wed, 01 Apr 2020 23:12:19 +0000
+ * build: Thu, 02 Apr 2020 08:16:55 +0000
  */
 (function () {
 	'use strict';
@@ -1150,7 +1150,7 @@
 
 	    var _build = "".concat(_year, "-").concat(_format(_date.getMonth() + 1), "-").concat(_format(_date.getDate()));
 
-	    var banner = "\n  __                    __\n / /  _    _  ___  ___  \\ \\\n| |  | |  | || . \\/ __>  | |\n| |  | |_ | ||  _/\\__ \\  | |\n| |  |___||_||_|  <___/  | |\n \\_\\                    /_/\n\nLIPS Interpreter DEV (".concat(_build, ")\nCopyright (c) 2018-").concat(_year, " Jakub T. Jankiewicz <https://jcubic.pl/me>\n\nType (env) to see environment with functions macros and variables.\nYou can also use (help name) to display help for specic function or macro.\n").replace(/^.*\n/, '');
+	    var banner = "\n  __                    __\n / /  _    _  ___  ___  \\ \\\n| |  | |  | || . \\/ __>  | |\n| |  | |_ | ||  _/\\__ \\  | |\n| |  |___||_||_|  <___/  | |\n \\_\\                    /_/\n\nLIPS Interpreter 0.20.1 (".concat(_build, ")\nCopyright (c) 2018-").concat(_year, " Jakub T. Jankiewicz <https://jcubic.pl/me>\n\nType (env) to see environment with functions macros and variables.\nYou can also use (help name) to display help for specic function or macro.\n").replace(/^.*\n/, '');
 	    return banner;
 	  }(); // parse_argument based on function from jQuery Terminal
 
@@ -6029,9 +6029,18 @@
 	      return result;
 	    }, "(env obj)\n\n            Function return list values (functions and variables) inside environment."),
 	    'new': doc(function (obj) {
+	      if (typeof obj === 'function') {
+	        obj = unbind(obj);
+	      }
+
 	      for (var _len17 = arguments.length, args = new Array(_len17 > 1 ? _len17 - 1 : 0), _key17 = 1; _key17 < _len17; _key17++) {
 	        args[_key17 - 1] = arguments[_key17];
 	      }
+
+	      console.log({
+	        obj: obj,
+	        args: args
+	      });
 
 	      var instance = construct(unbind(obj), args);
 
@@ -7222,6 +7231,12 @@
 	          var scope = (dynamic_scope || env).newFrame(value, _args);
 	          var result = resolvePromises(value.apply(scope, args));
 	          return unpromise(result, function (result) {
+	            if (LSymbol.is(first, 'new')) {
+	              console.log({
+	                result: result
+	              });
+	            }
+
 	            if (result instanceof Pair) {
 	              result.markCycles();
 	              return quote(result);
@@ -7461,9 +7476,9 @@
 	  InputStringPort.__className = 'input-string-port'; // -------------------------------------------------------------------------
 
 	  var lips = {
-	    version: 'DEV',
+	    version: '0.20.1',
 	    banner: banner,
-	    date: 'Wed, 01 Apr 2020 23:12:19 +0000',
+	    date: 'Thu, 02 Apr 2020 08:16:55 +0000',
 	    exec: exec,
 	    parse: parse,
 	    tokenize: tokenize,

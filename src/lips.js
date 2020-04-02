@@ -4225,6 +4225,10 @@ You can also use (help name) to display help for specic function or macro.
 
             Function return list values (functions and variables) inside environment.`),
         'new': doc(function(obj, ...args) {
+            if (typeof obj === 'function') {
+                obj = unbind(obj);
+            }
+            console.log({ obj, args });
             var instance = new (unbind(obj))(...args);
             Object.defineProperty(instance, '__instance__', {
                 enumerable: false,
@@ -5334,6 +5338,9 @@ You can also use (help name) to display help for specic function or macro.
                     var scope = (dynamic_scope || env).newFrame(value, _args);
                     var result = resolvePromises(value.apply(scope, args));
                     return unpromise(result, (result) => {
+                        if (LSymbol.is(first, 'new')) {
+                            console.log({ result });
+                        }
                         if (result instanceof Pair) {
                             result.markCycles();
                             return quote(result);

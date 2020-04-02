@@ -15,6 +15,8 @@ var {
     quote
 } = lips;
 
+console = {log: ()=>{}};
+
 var deps = lips.exec('(load "./examples/helpers.lips")');
 
 describe('tokenizer', function() {
