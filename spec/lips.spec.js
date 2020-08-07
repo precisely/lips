@@ -17,6 +17,10 @@ var {
 
 var deps = lips.exec('(load "./examples/helpers.lips")');
 
+describe('parser (stream based parser', function () {
+
+});
+
 describe('tokenizer', function() {
     it('should create tokens for simple list', function() {
         expect(tokenize('(foo bar baz)')).toEqual(['(', 'foo', 'bar', 'baz', ')']);

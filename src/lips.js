@@ -286,13 +286,252 @@
         "'": new LSymbol('quote'),
         '`': new LSymbol('quasiquote'),
         ',@': new LSymbol('unquote-splicing'),
-        ',': new LSymbol('unquote')
+        ',': new LSymbol('unquote'),
+        '.': new LSymbol('cons-dot')
     };
+
+    // ----------------------------------------------------------------------
+    // New stream based parser
+    // ----------------------------------------------------------------------
+
+    function parse(str) {
+      if (typeof str === 'string') {
+        return parse(streamFromString(str));
+      } else {
+        var next = read(str);
+        var list = []
+        while (next !== null) {
+          list.push(next);
+          next = read(str);
+        }
+        return list;
+      }
+    }
+
+    function read(stream, terminator) {
+      var c;
+
+      consumeWhitespace(stream);
+      c = peek(stream);
+
+      while (c === getReadTable().commentChar) {
+        commentReader(stream);
+        consumeWhitespace(stream);
+        c = peek(stream);
+      }
+
+      if (c === null || c === terminator) return null;
+      if (getReadTable().terminatorTest[c]) {
+        throw new Error('Unexpected terminator ' + c + ' encountered at ' + stream.read(50));
+      }
+      var reader = getReadTable().readers[c];
+      if (reader) {
+        return reader(stream);
+      } else {
+        return symbolOrNumberReader(stream);
+      }
+    }
+
+    function ReadTable(rt) {
+      this.terminators = rt ? Object.assign({}, rt.terminators) : {};
+      this.terminatorTest = rt ? Object.assign({}, rt.terminatorTest) : {};
+      this.readers = rt ? rt.readers : {};
+      this.quasiquoteUnquoteChar = ',';
+      this.quasiquoteSpliceChar = '@';
+      this.commentChar = rt ? rt.commentChar : ';';
+      this.symbolTerminatorRegex = function () {
+        if (!this._symbolTerminators) {
+          var terminatorChars = (Object.keys(this.readers).concat(Object.keys(this.terminators), Object.values(this.terminators)));
+          terminatorChars = terminatorChars.map(c => "\\"+c).join("");
+          this._symbolTerminators = new RegExp("[" + terminatorChars + "]");
+        }
+        return this._symbolTerminators
+      }
+      this.setReaderFunction = function setReaderFunction(chars, fn, terminator) {
+        this._symbolTerminatorRegex = null;
+        chars.split('').forEach(c => {
+          this.readers[c] = fn;
+          if (terminator) {
+            this.terminators[c] = terminator;
+          }
+          this.rebuildTerminatorTest();
+        })
+      }
+      this.setQuasiquoteReader = function setQuasiquoteReader(qqChar, unquoteChar, spliceChar, fn) {
+        this._symbolTerminatorRegex = null;
+        this.setReaderFunction(qqChar, fn);
+        this.quasiquoteUnquoteChar = unquoteChar;
+        this.quasiquoteSpliceChar = spliceChar;
+        this.setReaderFunction(unquoteChar, function () {
+          throw new Error("Encountered unquote outside of backquote at "+ unquoteChar + stream.read(80));
+        });
+      }
+
+      this.rebuildTerminatorTest = function rebuildTerminatorTest() {
+        this.terminatorTest = {}
+        Object.values(this.terminators).forEach(terminator => this.terminatorTest[terminator] = true);
+      }
+    }
+
+    ReadTable.push = function () {
+      var newRT = new ReadTable(getReadTable());
+      READTABLES.push(newRT);
+      return newRT;
+    };
+    ReadTable.pop = function () {
+      READTABLES.pop();
+    }
+    var READTABLES = [new ReadTable()];
+
+    function getReadTable() {
+      return READTABLES[READTABLES.length -1];
+    }
+
+    var topLevelReadTable = getReadTable();
+    topLevelReadTable.setReaderFunction(' \t\n\r', consumeWhitespace);
+    topLevelReadTable.setQuasiquoteReader('`', ',', '@', quasiquoteReader);
+    topLevelReadTable.setReaderFunction('(', listReader, ')');
+    topLevelReadTable.setReaderFunction('"', stringReader);
+    topLevelReadTable.setReaderFunction('\'', quoteReader);
+
+    function quoteReader(stream) {
+      const quote = stream.read(1);
+      var quotedItem = read(stream);
+      if (!quotedItem) {
+        throw new Error('QUOTE has no argument');
+      }
+      return Pair.fromArray([specials['\''], quotedItem]);
+    }
+
+    function commentReader(stream) {
+      readEscapedStringUntil(stream, /\n/);
+    }
+
+    function consDotReader(stream) {
+
+    }
+    function listReader(stream) {
+      var initiator = stream.read(1);
+      var terminator = getReadTable().terminators[initiator];
+      if (!terminator) {
+        throw new Error("No terminator defined for " + initiator);
+      }
+      consumeWhitespace(stream);
+      var elt = read(stream, terminator);
+      var elements = [];
+      var cdr = null;
+      while (elt !== null) {
+        elements.push(elt);
+        elt = read(stream, terminator);
+        if (elt == specials['.']) {
+          cdr = read(stream, terminator);
+          if (cdr == null) {
+            throw new Error('Unexpected end of list after consing dot at '+peek(stream, 100));
+          }
+          elt = read(stream, terminator);
+          if (elt) {
+            throw new Error('Unexpected element after CDR at '+ peek(stream, 100))
+          }
+        }
+      }
+      stream.read(1); // get rid of the terminator character
+      if (elements.length>0) {
+        return Pair.fromArray(elements);
+      } else {
+        return nil;
+      }
+    }
+
+    function symbolOrNumberReader(stream) {
+      var string = readEscapedStringUntil(stream, getReadTable().symbolTerminatorRegex());
+      if (/^[+-]?\d+(\.\d+)?$/.test(string)) {
+        return JSON.parse(string);
+      } else {
+        return new LSymbol(string.replace('\\', ''));
+      }
+    }
+
+    function stringReader(stream) {
+      stream.read(1); // discard string start char
+      var str = readEscapedStringUntil(stream, /^"/, '\\');
+      stream.read(1);
+      return str;
+    }
+
+    function quasiquoteReader(stream) {
+      stream.read(1);
+      var newRT = ReadTable.push();
+      function unquoteReader(stream) {
+        stream.read(1);
+        if (peek(stream) === newRT.quasiquoteSpliceChar) {
+          stream.read(1);
+          return Pair.fromArray([specials[',@'], read(stream)]);
+        } else {
+          return Pair.fromArray([specials[','], read(stream)]);
+        }
+      }
+      newRT.setReaderFunction(newRT.quasiquoteUnquoteChar, unquoteReader);
+      var result = Pair.fromArray([specials['`'], read(stream)]);
+      ReadTable.pop();
+      return result;
+    }
+
+    function readEscapedStringUntil(stream, re, escapeChar=undefined) {
+      var c = stream.read(1);
+      var result = streamFromString("");
+      result.setEncoding('utf8');
+      while (!re.test(c)) {
+        if (!c) {
+          throw new Error('Unexpected end of file');
+        }
+        if (c === escapeChar) { // force accept the next char
+          result.push(c);
+          c = stream.read(1);
+        }
+        result.push(c);
+        c = stream.read(1);
+      }
+      stream.unshift(c);
+      return result.read();
+    }
+
+    function consumeWhitespace(stream) {
+      var c;
+      do {
+        c = stream.read(1);
+      } while (/^\s/.test(c));
+
+      if (c) {
+        stream.unshift(c);
+      }
+    }
+
+    function streamFromString(str) {
+      // handle browser && nodejs implementation:
+      try {
+        return new ReadableStream(str);
+      } catch {
+        var stream = require('stream');
+        var newStream = new stream.Readable({ read: function () {} });
+        newStream.setEncoding('utf8');
+        newStream.push(str);
+        return newStream;
+      }
+    }
+
+    function peek(stream, n = 1) {
+      var c = stream.read(n);
+      if (c) {
+        stream.unshift(c);
+      }
+      return c;
+    }
+
     // ----------------------------------------------------------------------
     // :: tokens are the array of strings from tokenizer
     // :: the return value is lisp code created out of Pair class
     // ----------------------------------------------------------------------
-    function parse(tokens) {
+    function parseold(tokens) {
         if (typeof tokens === 'string') {
             tokens = tokenize(tokens);
         }
@@ -3310,7 +3549,7 @@
         // ------------------------------------------------------------------
         read: doc(function read(arg) {
             if (typeof arg === 'string') {
-                return parse(tokenize(arg))[0];
+                return parse(arg)[0];
             }
             return this.get('stdin').read().then((text) => {
                 return read.call(this, text);
@@ -4392,6 +4631,7 @@
         version: '{{VER}}',
         exec,
         parse,
+        getReadTable,
         tokenize,
         evaluate,
         Environment,
