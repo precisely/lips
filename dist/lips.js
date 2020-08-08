@@ -1241,6 +1241,8 @@
 	  function parse(str) {
 	    if (typeof str === 'string') {
 	      return parse(streamFromString(str));
+	    } else if (_typeof_1(str) === 'object' && str.constructor.name === 'Array') {
+	      return parse(str.join(' '));
 	    } else {
 	      var next = read(str);
 	      var list = [];
@@ -1281,8 +1283,8 @@
 	  }
 
 	  function ReadTable(rt) {
-	    this.terminators = rt ? rt.terminators : {};
-	    this.terminatorTest = rt ? rt.terminatorTest : {};
+	    this.terminators = rt ? Object.assign({}, rt.terminators) : {};
+	    this.terminatorTest = rt ? Object.assign({}, rt.terminatorTest) : {};
 	    this.readers = rt ? rt.readers : {};
 	    this.quasiquoteUnquoteChar = ',';
 	    this.quasiquoteSpliceChar = '@';
@@ -1337,7 +1339,7 @@
 
 	  ReadTable.push = function () {
 	    var newRT = new ReadTable(getReadTable());
-	    READTABLES = READTABLES.push(newRT);
+	    READTABLES.push(newRT);
 	    return newRT;
 	  };
 
@@ -1373,6 +1375,10 @@
 	    readEscapedStringUntil(stream, /\n/);
 	  }
 
+	  function isConsingDot(elt) {
+	    return elt instanceof LSymbol && elt.name === '.';
+	  }
+
 	  function listReader(stream) {
 	    var initiator = stream.read(1);
 	    var terminator = getReadTable().terminators[initiator];
@@ -1383,39 +1389,43 @@
 
 	    consumeWhitespace(stream);
 	    var elt = read(stream, terminator);
-	    var elements = [];
-	    var cdr = null;
 
-	    while (elt !== null) {
-	      elements.push(elt);
-	      elt = read(stream, terminator);
+	    if (elt === null) {
+	      stream.read(1);
+	      return nil;
+	    }
 
-	      if (elt == specials['.']) {
-	        cdr = read(stream, terminator);
+	    var list = new Pair(elt);
+	    var tail = list;
+	    elt = read(stream, terminator);
 
-	        if (cdr == null) {
-	          throw new Error('Unexpected end of list after consing dot at ' + peek(stream, 100));
-	        }
-
+	    do {
+	      if (isConsingDot(elt)) {
+	        elt = read(stream, terminator);
+	        tail.cdr = elt;
 	        elt = read(stream, terminator);
 
-	        if (elt) {
-	          throw new Error('Unexpected element after CDR at ' + peek(stream, 100));
+	        if (elt === null) {
+	          break;
+	        } else {
+	          throw new Error('Unexpected element after consing dot');
 	        }
+	      } else if (elt) {
+	        var newTail = new Pair(elt, nil);
+	        tail.cdr = newTail;
+	        tail = newTail;
 	      }
-	    }
+
+	      elt = read(stream, terminator);
+	    } while (elt !== null);
 
 	    stream.read(1); // get rid of the terminator character
 
-	    if (elements.length > 0) {
-	      return Pair.fromArray(elements);
-	    } else {
-	      return nil;
-	    }
+	    return list;
 	  }
 
 	  function symbolOrNumberReader(stream) {
-	    var string = readEscapedStringUntil(stream, getReadTable().symbolTerminatorRegex());
+	    var string = readEscapedStringUntil(stream, getReadTable().symbolTerminatorRegex(), '\\', true);
 
 	    if (/^[+-]?\d+(\.\d+)?$/.test(string)) {
 	      return JSON.parse(string);
@@ -1447,7 +1457,7 @@
 	      }
 	    }
 
-	    newRT.setQuasiquoteReader(newRT.quasiquoteUnquoteChar, unquoteReader);
+	    newRT.setReaderFunction(newRT.quasiquoteUnquoteChar, unquoteReader);
 	    var result = Pair.fromArray([specials['`'], read(stream)]);
 	    ReadTable.pop();
 	    return result;
@@ -1455,11 +1465,12 @@
 
 	  function readEscapedStringUntil(stream, re) {
 	    var escapeChar = arguments.length > 2 && arguments[2] !== undefined$1 ? arguments[2] : undefined$1;
+	    var allowEOF = arguments.length > 3 && arguments[3] !== undefined$1 ? arguments[3] : false;
 	    var c = stream.read(1);
 	    var result = streamFromString("");
 	    result.setEncoding('utf8');
 
-	    while (!re.test(c)) {
+	    while (!(re.test(c) || allowEOF && c === null)) {
 	      if (!c) {
 	        throw new Error('Unexpected end of file');
 	      }

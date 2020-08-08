@@ -18,7 +18,56 @@ var {
 var deps = lips.exec('(load "./examples/helpers.lips")');
 
 describe('parser (stream based parser', function () {
+  it('should read a symbol', function () {
+    expect(parse("foo")).toEqual([new LSymbol('foo')]);
+  });
+  it('should read a simple list', function () {
+    expect(parse("(a b c)")).toEqual([
+      new Pair(
+        new LSymbol('a'),
+        new Pair(
+          new LSymbol('b'),
+          new Pair(
+            new LSymbol('c'),
+            nil
+          )
+        )
+      )]);
+  });
+  it('should read a cons pair', function () {
+    expect(parse("(a . b)")).toEqual([
+      new Pair(
+        new LSymbol('a'),
+        new LSymbol('b')
+      )
+    ]);
+  });
 
+  it('should read a cons list', function () {
+    expect(parse("(a b . c)")).toEqual([
+      new Pair(
+        new LSymbol('a'),
+        new Pair(
+          new LSymbol('b'),
+          new LSymbol('c')
+        )
+      )
+    ]);
+  })
+
+  it('should parts numbers in a list', function () {
+    expect(parse('(1 2 3 . 10)')).toEqual([
+      new Pair(
+        1,
+        new Pair(
+          2,
+          new Pair(
+            3, 10
+          )
+        )
+      )
+    ])
+  })
 });
 
 describe('tokenizer', function() {
