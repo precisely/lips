@@ -395,6 +395,7 @@
     topLevelReadTable.setReaderFunction('(', listReader, ')');
     topLevelReadTable.setReaderFunction('"', stringReader);
     topLevelReadTable.setReaderFunction('\'', quoteReader);
+    topLevelReadTable.setReaderFunction('/', regexpReader);
 
     function quoteReader(stream) {
       const quote = stream.read(1);
@@ -428,7 +429,7 @@
         return nil;
       }
 
-	    var list = new Pair(elt);
+	    var list = new Pair(elt, nil);
 	    var tail = list;
 
       elt = read(stream, terminator);
@@ -460,8 +461,8 @@
 
     function symbolOrNumberReader(stream) {
       var string = readEscapedStringUntil(stream, getReadTable().symbolTerminatorRegex(), '\\', true);
-      if (/^[+-]?\d+(\.\d+)?$/.test(string)) {
-        return JSON.parse(string);
+      if (/^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$/.test(string)) {
+        return new LNumber(JSON.parse(string));
       } else {
         return new LSymbol(string.replace('\\', ''));
       }
@@ -492,6 +493,18 @@
       return result;
     }
 
+    function regexpReader(stream) {
+      debugger;
+      stream.read(1);
+      var pattern = readEscapedStringUntil(stream, /^\//, '\\', true);
+      if (pattern) {
+        stream.read(1);
+      }
+      var flags = readEscapedStringUntil(stream, getReadTable().symbolTerminatorRegex(), undefined, true);
+
+      return new RegExp(pattern, flags);
+    }
+
     function readEscapedStringUntil(stream, re, escapeChar=undefined, allowEOF=false) {
       var c = stream.read(1);
       var result = streamFromString("");
@@ -508,7 +521,7 @@
         c = stream.read(1);
       }
       stream.unshift(c);
-      return result.read();
+      return result.read() || "";
     }
 
     function consumeWhitespace(stream) {
@@ -543,157 +556,157 @@
       return c;
     }
 
-    // ----------------------------------------------------------------------
-    // :: tokens are the array of strings from tokenizer
-    // :: the return value is lisp code created out of Pair class
-    // ----------------------------------------------------------------------
-    function parseold(tokens) {
-        if (typeof tokens === 'string') {
-            tokens = tokenize(tokens);
-        }
-        var stack = [];
-        var result = [];
-        var special = null;
-        var special_tokens = Object.keys(specials);
-        var special_forms = special_tokens.map(s => specials[s].name);
-        var parents = 0;
-        var first_value = false;
-        var specials_stack = [];
-        var single_list_specials = [];
-        var special_count = 0;
-        function pop_join() {
-            var top = stack[stack.length - 1];
-            if (top instanceof Array && top[0] instanceof LSymbol &&
-                special_forms.includes(top[0].name) &&
-                stack.length > 1 && !top[0].literal) {
-                stack.pop();
-                if (stack[stack.length - 1].length === 1 &&
-                    stack[stack.length - 1][0] instanceof LSymbol) {
-                    stack[stack.length - 1].push(top);
-                } else if (false && stack[stack.length - 1].length === 0) {
-                    stack[stack.length - 1] = top;
-                } else if (stack[stack.length - 1] instanceof Pair) {
-                    if (stack[stack.length - 1].cdr instanceof Pair) {
-                        stack[stack.length - 1] = new Pair(
-                            stack[stack.length - 1],
-                            Pair.fromArray(top)
-                        );
-                    } else {
-                        stack[stack.length - 1].cdr = Pair.fromArray(top);
-                    }
-                } else {
-                    stack[stack.length - 1].push(top);
-                }
-            }
-        }
-        tokens.forEach(function(token) {
-            var top = stack[stack.length - 1];
-            if (special_tokens.indexOf(token) !== -1) {
-                special_count++;
-                special = token;
-                stack.push([specials[special]]);
-                if (!special) {
-                    single_list_specials = [];
-                }
-                single_list_specials.push(special);
-            } else {
-                if (special) {
-                    specials_stack.push(single_list_specials);
-                    single_list_specials = [];
-                }
-                if (token === '(') {
-                    first_value = true;
-                    parents++;
-                    stack.push([]);
-                    special = null;
-                    special_count = 0;
-                } else if (token === '.' && !first_value) {
-                    stack[stack.length - 1] = Pair.fromArray(top);
-                } else if (token === ')') {
-                    parents--;
-                    if (!stack.length) {
-                        throw new Error('Unbalanced parenthesis');
-                    }
-                    if (stack.length === 1) {
-                        result.push(stack.pop());
-                    } else if (stack.length > 1) {
-                        var list = stack.pop();
-                        top = stack[stack.length - 1];
-                        if (top instanceof Array) {
-                            top.push(list);
-                        } else if (top instanceof Pair) {
-                            top.append(Pair.fromArray(list));
-                        }
-                        if (specials_stack.length) {
-                            single_list_specials = specials_stack.pop();
-                            while (single_list_specials.length) {
-                                pop_join();
-                                single_list_specials.pop();
-                            }
-                        } else {
-                            pop_join();
-                        }
-                    }
-                    if (parents === 0 && stack.length) {
-                        result.push(stack.pop());
-                    }
-                } else {
-                    first_value = false;
-                    var value = parse_argument(token);
-                    if (special) {
-                        // special without list like ,foo
-                        while (special_count--) {
-                            stack[stack.length - 1].push(value);
-                            value = stack.pop();
-                        }
-                        specials_stack.pop();
-                        special_count = 0;
-                        special = false;
-                    } else if (value instanceof LSymbol &&
-                               special_forms.includes(value.name)) {
-                        // handle parsing os special forms as literal symbols
-                        // (values they expand into)
-                        value.literal = true;
-                    }
-                    top = stack[stack.length - 1];
-                    if (top instanceof Pair) {
-                        var node = top;
-                        while (true) {
-                            if (node.cdr === nil) {
-                                if (value instanceof Array) {
-                                    node.cdr = Pair.fromArray(value);
-                                } else {
-                                    node.cdr = value;
-                                }
-                                break;
-                            } else {
-                                node = node.cdr;
-                            }
-                        }
-                    } else if (!stack.length) {
-                        result.push(value);
-                    } else {
-                        top.push(value);
-                    }
-                }
-            }
-        });
-        if (!tokens.filter(t => t.match(/^[()]$/)).length && stack.length) {
-            // list of parser macros
-            result = result.concat(stack);
-            stack = [];
-        }
-        if (stack.length) {
-            dump(result);
-            throw new Error('Unbalanced parenthesis 2');
-        }
-        return result.map((arg) => {
-            if (arg instanceof Array) {
-                return Pair.fromArray(arg);
-            }
-            return arg;
-        });
-    }
+    // // ----------------------------------------------------------------------
+    // // :: tokens are the array of strings from tokenizer
+    // // :: the return value is lisp code created out of Pair class
+    // // ----------------------------------------------------------------------
+    // function parseold(tokens) {
+    //     if (typeof tokens === 'string') {
+    //         tokens = tokenize(tokens);
+    //     }
+    //     var stack = [];
+    //     var result = [];
+    //     var special = null;
+    //     var special_tokens = Object.keys(specials);
+    //     var special_forms = special_tokens.map(s => specials[s].name);
+    //     var parents = 0;
+    //     var first_value = false;
+    //     var specials_stack = [];
+    //     var single_list_specials = [];
+    //     var special_count = 0;
+    //     function pop_join() {
+    //         var top = stack[stack.length - 1];
+    //         if (top instanceof Array && top[0] instanceof LSymbol &&
+    //             special_forms.includes(top[0].name) &&
+    //             stack.length > 1 && !top[0].literal) {
+    //             stack.pop();
+    //             if (stack[stack.length - 1].length === 1 &&
+    //                 stack[stack.length - 1][0] instanceof LSymbol) {
+    //                 stack[stack.length - 1].push(top);
+    //             } else if (false && stack[stack.length - 1].length === 0) {
+    //                 stack[stack.length - 1] = top;
+    //             } else if (stack[stack.length - 1] instanceof Pair) {
+    //                 if (stack[stack.length - 1].cdr instanceof Pair) {
+    //                     stack[stack.length - 1] = new Pair(
+    //                         stack[stack.length - 1],
+    //                         Pair.fromArray(top)
+    //                     );
+    //                 } else {
+    //                     stack[stack.length - 1].cdr = Pair.fromArray(top);
+    //                 }
+    //             } else {
+    //                 stack[stack.length - 1].push(top);
+    //             }
+    //         }
+    //     }
+    //     tokens.forEach(function(token) {
+    //         var top = stack[stack.length - 1];
+    //         if (special_tokens.indexOf(token) !== -1) {
+    //             special_count++;
+    //             special = token;
+    //             stack.push([specials[special]]);
+    //             if (!special) {
+    //                 single_list_specials = [];
+    //             }
+    //             single_list_specials.push(special);
+    //         } else {
+    //             if (special) {
+    //                 specials_stack.push(single_list_specials);
+    //                 single_list_specials = [];
+    //             }
+    //             if (token === '(') {
+    //                 first_value = true;
+    //                 parents++;
+    //                 stack.push([]);
+    //                 special = null;
+    //                 special_count = 0;
+    //             } else if (token === '.' && !first_value) {
+    //                 stack[stack.length - 1] = Pair.fromArray(top);
+    //             } else if (token === ')') {
+    //                 parents--;
+    //                 if (!stack.length) {
+    //                     throw new Error('Unbalanced parenthesis');
+    //                 }
+    //                 if (stack.length === 1) {
+    //                     result.push(stack.pop());
+    //                 } else if (stack.length > 1) {
+    //                     var list = stack.pop();
+    //                     top = stack[stack.length - 1];
+    //                     if (top instanceof Array) {
+    //                         top.push(list);
+    //                     } else if (top instanceof Pair) {
+    //                         top.append(Pair.fromArray(list));
+    //                     }
+    //                     if (specials_stack.length) {
+    //                         single_list_specials = specials_stack.pop();
+    //                         while (single_list_specials.length) {
+    //                             pop_join();
+    //                             single_list_specials.pop();
+    //                         }
+    //                     } else {
+    //                         pop_join();
+    //                     }
+    //                 }
+    //                 if (parents === 0 && stack.length) {
+    //                     result.push(stack.pop());
+    //                 }
+    //             } else {
+    //                 first_value = false;
+    //                 var value = parse_argument(token);
+    //                 if (special) {
+    //                     // special without list like ,foo
+    //                     while (special_count--) {
+    //                         stack[stack.length - 1].push(value);
+    //                         value = stack.pop();
+    //                     }
+    //                     specials_stack.pop();
+    //                     special_count = 0;
+    //                     special = false;
+    //                 } else if (value instanceof LSymbol &&
+    //                            special_forms.includes(value.name)) {
+    //                     // handle parsing os special forms as literal symbols
+    //                     // (values they expand into)
+    //                     value.literal = true;
+    //                 }
+    //                 top = stack[stack.length - 1];
+    //                 if (top instanceof Pair) {
+    //                     var node = top;
+    //                     while (true) {
+    //                         if (node.cdr === nil) {
+    //                             if (value instanceof Array) {
+    //                                 node.cdr = Pair.fromArray(value);
+    //                             } else {
+    //                                 node.cdr = value;
+    //                             }
+    //                             break;
+    //                         } else {
+    //                             node = node.cdr;
+    //                         }
+    //                     }
+    //                 } else if (!stack.length) {
+    //                     result.push(value);
+    //                 } else {
+    //                     top.push(value);
+    //                 }
+    //             }
+    //         }
+    //     });
+    //     if (!tokens.filter(t => t.match(/^[()]$/)).length && stack.length) {
+    //         // list of parser macros
+    //         result = result.concat(stack);
+    //         stack = [];
+    //     }
+    //     if (stack.length) {
+    //         dump(result);
+    //         throw new Error('Unbalanced parenthesis 2');
+    //     }
+    //     return result.map((arg) => {
+    //         if (arg instanceof Array) {
+    //             return Pair.fromArray(arg);
+    //         }
+    //         return arg;
+    //     });
+    // }
     // ----------------------------------------------------------------------
     function unpromise(value, fn = x => x, error = null) {
         if (isPromise(value)) {

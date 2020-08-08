@@ -34,6 +34,24 @@ describe('parser (stream based parser', function () {
         )
       )]);
   });
+
+  it('should read a list a list at the head', function () {
+    expect(parse("((a b) c)")).toEqual([
+      new Pair(
+        new Pair(
+          new LSymbol('a'),
+          new Pair(
+            new LSymbol('b'),
+            nil
+          )
+        ),
+        new Pair(
+          new LSymbol('c'),
+          nil
+        )
+      )
+    ]);
+  });
   it('should read a cons pair', function () {
     expect(parse("(a . b)")).toEqual([
       new Pair(
@@ -55,19 +73,22 @@ describe('parser (stream based parser', function () {
     ]);
   })
 
-  it('should parts numbers in a list', function () {
+  it('should parse numbers in a list', function () {
     expect(parse('(1 2 3 . 10)')).toEqual([
       new Pair(
-        1,
+        new LNumber(1),
         new Pair(
-          2,
+          new LNumber(2),
           new Pair(
-            3, 10
+            new LNumber(3), new LNumber(10)
           )
         )
       )
-    ])
-  })
+    ]);
+  });
+  it('should parse a regex', function () {
+    expect(parse('/( \\/)/g')).toEqual([new RegExp('( \/)', 'g')]);
+  });
 });
 
 describe('tokenizer', function() {
@@ -234,13 +255,13 @@ describe('parser', function() {
         var tokens = tokenize(input);
         var array = parse(tokens);
         var q = new LSymbol('quasiquote');
-        if (literal) {
-            q.literal = true;
-        }
+        // if (literal) {
+        //     q.literal = true;
+        // }
         var u = new LSymbol('unquote-splicing');
-        if (literal) {
-            u.literal = true;
-        }
+        // if (literal) {
+        //     u.literal = true;
+        // }
         expect(array[0]).toEqual(
             new Pair(
                 q,
@@ -853,7 +874,8 @@ describe('lists', function() {
             ].forEach(([code, expected]) => {
                 var input = str2list(code);
                 input.append(LNumber(10));
-                expect(input).toEqual(str2list(expected));
+                var expectedList = str2list(expected);
+                expect(input).toEqual(expectedList);
             });
         });
         it('should not append nil', function() {

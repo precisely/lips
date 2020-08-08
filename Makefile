@@ -9,7 +9,7 @@ URL=`git config --get remote.origin.url`
 
 GIT=git
 CD=cd
-SED=sed
+SED=gsed
 CP=cp
 RM=rm
 TEST=test
